@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>The Apple</title>
+  <meta name="description" content="Snake, flipped. You're the apple. Outsmart the snake, lead it into walls, thorns and its own tail, and don't get eaten!">
+  <meta name="theme-color" content="#e8392f">
+  <meta property="og:title" content="The Apple: Snake, flipped">
+  <meta property="og:description" content="You're the apple. Make the snake crash, and don't get eaten!">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://mattlavergne.com/apple/">
+  <meta property="og:image" content="https://mattlavergne.com/apple/assets/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="hud" class="hidden">
+      <div class="hud-left">
+        <button id="btn-pause" class="icon-btn" aria-label="Pause">&#10074;&#10074;</button>
+        <div class="hud-level">
+          <strong id="hud-level">Level 1</strong>
+          <small id="hud-world">Sunny Orchard</small>
+        </div>
+      </div>
+      <div id="hud-bites" class="hud-bites" aria-label="Bites left"></div>
+      <div class="hud-right">
+        <div class="hud-score"><small>Score</small><strong id="hud-score">0</strong></div>
+        <div class="hud-stars"><span class="star">&#9733;</span><strong id="hud-stars">0</strong></div>
+      </div>
+    </header>
+
+    <main id="stage">
+      <canvas id="game" aria-label="Game field"></canvas>
+      <div id="joy" class="joy"><div></div></div>
+      <div id="banner" class="banner">
+        <div class="banner-level" id="banner-level">Level 1</div>
+        <div class="banner-world" id="banner-world">Sunny Orchard</div>
+        <div class="banner-foe" id="banner-foe">Gary the Garden Snake</div>
+        <p class="banner-tip" id="banner-tip"></p>
+      </div>
+    </main>
+
+    <nav id="abilities" class="hidden" aria-label="Abilities">
+      <button class="ability" data-ab="dash" style="--c:#4fc3f7">
+        <span class="ab-icon">&#128168;</span><span class="ab-name">Dash</span><kbd>Space</kbd>
+        <span class="ab-cd"></span>
+      </button>
+      <button class="ability" data-ab="thorn" style="--c:#66bb6a">
+        <span class="ab-icon">&#127807;</span><span class="ab-name">Bramble</span><kbd>E</kbd>
+        <span class="ab-count" id="thorn-count">3</span>
+        <span class="ab-cd"></span>
+      </button>
+      <button class="ability" data-ab="rot" style="--c:#a1887f">
+        <span class="ab-icon">&#129440;</span><span class="ab-name">Rot</span><kbd>Q</kbd>
+        <span class="ab-lock">Lv 3</span>
+        <span class="ab-cd"></span>
+      </button>
+      <button class="ability" data-ab="decoy" style="--c:#ffd54f">
+        <span class="ab-icon">&#10024;</span><span class="ab-name">Decoy</span><kbd>R</kbd>
+        <span class="ab-cd"></span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Title -->
+  <section id="screen-title" class="screen title-screen show">
+    <div class="title-wrap">
+      <canvas id="logo-apple" width="180" height="180" aria-hidden="true"></canvas>
+      <h1 class="logo">The <span>Apple</span></h1>
+      <p class="tagline">It's Snake, but <em>you're</em> the apple.<br>Make the snake crash. Don't get eaten!</p>
+      <div class="modes" id="modes" role="radiogroup" aria-label="Difficulty"></div>
+      <button id="btn-play" class="btn btn-big btn-red">Play</button>
+      <div class="row">
+        <button id="btn-orchard" class="btn btn-green">&#127795; Orchard</button>
+        <button id="btn-help" class="btn btn-blue">? How to play</button>
+      </div>
+      <div class="row small">
+        <span class="pill">&#9733; <strong id="title-stars">0</strong></span>
+        <span class="pill" id="title-best">Best: &mdash;</span>
+        <button class="toggle" id="tgl-music" aria-pressed="true">&#9835; Music</button>
+        <button class="toggle" id="tgl-sfx" aria-pressed="true">&#128266; Sound</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- How to play -->
+  <section id="screen-help" class="screen">
+    <div class="panel">
+      <h2>How to play</h2>
+      <p class="lead">You're the apple. The snakes are hungry. Lead them into <b>walls</b>, <b>rocks</b>, <b>brambles</b>, <b>each other</b> or <b>their own tails</b>. When every snake has crashed, you clear the level!</p>
+      <div class="help-grid">
+        <div class="help-item"><span class="hi-icon">&#11014;&#65039;</span><div><b>Move</b><small>Arrow keys / WASD. On a phone or tablet, drag anywhere on the field.</small></div></div>
+        <div class="help-item"><span class="hi-icon">&#128168;</span><div><b>Dash</b> <kbd>Space</kbd><small>Zip a few tiles forward. Great for escaping lunges.</small></div></div>
+        <div class="help-item"><span class="hi-icon">&#127807;</span><div><b>Bramble</b> <kbd>E</kbd><small>Drop a thorny bush behind you. Snakes that hit it are out.</small></div></div>
+        <div class="help-item"><span class="hi-icon">&#129440;</span><div><b>Hidden Rot</b> <kbd>Q</kbd><small>From level 3. Secretly rot for a few seconds. A snake that bites you is poisoned!</small></div></div>
+        <div class="help-item"><span class="hi-icon">&#10024;</span><div><b>Decoy</b> <kbd>R</kbd><small>Unlock it in the Orchard. Leaves a shiny fake apple behind.</small></div></div>
+        <div class="help-item"><span class="hi-icon">&#10071;</span><div><b>Watch for "!"</b><small>A snake about to LUNGE rears back with red eyes. Get out of the way!</small></div></div>
+      </div>
+      <div class="pickups">
+        <span><b class="c-star">&#9733;</b> Stars buy upgrades and skins</span>
+        <span><b>&#127793;</b> Seeds refill brambles</span>
+        <span><b class="c-heart">&#10084;</b> Hearts heal a bite</span>
+      </div>
+      <p class="hint">Snakes grow longer every few seconds, so the longer you survive, the less room they have.</p>
+      <button class="btn btn-red" data-back>Let's go!</button>
+    </div>
+  </section>
+
+  <!-- Orchard (shop) -->
+  <section id="screen-orchard" class="screen">
+    <div class="panel wide">
+      <div class="panel-head">
+        <h2>&#127795; The Orchard</h2>
+        <span class="pill big">&#9733; <strong id="orchard-stars">0</strong></span>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="upgrades" role="tab">Upgrades</button>
+        <button class="tab" data-tab="skins" role="tab">Apple Skins</button>
+      </div>
+      <div id="orchard-upgrades" class="shop-grid"></div>
+      <div id="orchard-skins" class="shop-grid skins hidden"></div>
+      <button class="btn btn-blue" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- Perk pick after a level -->
+  <section id="screen-perks" class="screen">
+    <div class="panel wide">
+      <h2 class="win-title" id="perks-title">Level clear!</h2>
+      <p class="lead" id="perks-sub"></p>
+      <p class="pick-label">Pick a power-up <span class="kbd-hint">(1, 2 or 3)</span></p>
+      <div id="perk-cards" class="perk-cards"></div>
+    </div>
+  </section>
+
+  <!-- Game over -->
+  <section id="screen-over" class="screen">
+    <div class="panel">
+      <canvas id="over-apple" width="140" height="140" aria-hidden="true"></canvas>
+      <h2>Crunch! You got eaten.</h2>
+      <div class="stats" id="over-stats"></div>
+      <div id="over-best" class="new-best hidden">&#127942; New best!</div>
+      <div class="row">
+        <button id="btn-again" class="btn btn-big btn-red">Play again</button>
+      </div>
+      <div class="row">
+        <button id="btn-over-orchard" class="btn btn-green">&#127795; Orchard</button>
+        <button id="btn-over-menu" class="btn btn-blue">Menu</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pause -->
+  <section id="screen-pause" class="screen">
+    <div class="panel narrow">
+      <h2>Paused</h2>
+      <button id="btn-resume" class="btn btn-big btn-red">Resume</button>
+      <div class="row">
+        <button id="btn-restart" class="btn btn-green">Restart</button>
+        <button id="btn-quit" class="btn btn-blue">Menu</button>
+      </div>
+      <div class="row small">
+        <button class="toggle" id="tgl-music2" aria-pressed="true">&#9835; Music</button>
+        <button class="toggle" id="tgl-sfx2" aria-pressed="true">&#128266; Sound</button>
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
