@@ -30,22 +30,17 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 - After each level you pick 1 of 3 power-ups for the current run.
 - There are three modes: **Sprout** (relaxed, good for kids), **Classic**, and **Rotten Core**, which unlocks once you reach level 10 in Classic.
 
-## Hosting at mattlavergne.com/apple
+## Hosting
 
-All paths are relative, so the whole folder works from any sub-path. There are two easy options:
+The game is a static site on **GitHub Pages**, at `https://mattlavergne.github.io/apple/`.
 
-1. **Copy the files** (`index.html`, `favicon.svg`, `css/`, `js/`, `assets/`) into an `apple/` folder on the main site.
-2. **GitHub Pages:** if `mattlavergne.com` is the custom domain of your `<user>.github.io` site, any *project* repo with Pages turned on is served at `mattlavergne.com/<repo-name>/`. Rename this repo to `apple` (Settings → General), then turn on Pages (Settings → Pages → Deploy from branch → `main` / root). It will then be live at `mattlavergne.com/apple/` with no copying.
+It appears at **mattlavergne.com/apple** through the homepage Worker in
+[`mattlavergne/landing-page`](https://github.com/mattlavergne/landing-page). An
+`/apple` entry in that Worker's `APPS` registry opens the game in a mattOS app
+window and reverse-proxies `/apple/_app/*` to the GitHub Pages copy. Pushing
+here updates the live game. No change to the homepage is needed.
 
-The `og:image` / `og:url` tags in `index.html` assume the final URL is `https://mattlavergne.com/apple/`.
-
-### Link for the homepage
-
-```html
-<a href="/apple/" class="game-link">
-  🍎 <strong>The Apple</strong> — Snake, but you're the apple. Make the snake crash!
-</a>
-```
+All asset paths in this repo are relative, so the game works under any sub-path.
 
 ## Running locally
 
