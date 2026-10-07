@@ -84,7 +84,7 @@ export function speciesFor(level, i) {
 
 export const TIPS = {
   1: 'Move with the Arrow keys or WASD. Lead the snake into a wall, a rock, or its own tail!',
-  2: 'Press E to drop a bramble behind you. Young snakes can’t see brambles. Ouch!',
+  2: 'Drop a bramble behind you (E). Young snakes can’t see brambles. Ouch! And slipping right past a snake’s nose builds NERVE, which multiplies your score.',
   3: 'NEW: Hidden Rot (Q)! Go secretly rotten. If a snake bites you while you’re rotten, it’s POISONED. But watch out: snakes now LUNGE when they’re close. Dash with Space!',
   4: 'Snakes can see brambles now. Use them to build walls and box the snake in.',
   5: 'BOSS LEVEL! King Cobra Carl brought a friend. Get them to crash into each other!',
@@ -101,6 +101,9 @@ export const GENERIC_TIPS = [
   'Corners are dangerous for you AND the snake.',
   'Drop a bramble right after a sharp turn. Snakes can’t stop!',
   'Hearts heal one bite.',
+  'NERVE multiplies everything, even crash bonuses. Dance close before you spring the trap!',
+  'A lunging snake that just misses you counts double for NERVE.',
+  'S grades need no bites, a quick clear and a NERVE of 4 or more.',
   'Two snakes bumping into each other counts as TANGLED. That’s worth 1.5× points!',
 ];
 
@@ -164,3 +167,25 @@ export const SKINS = [
 ];
 
 export const CORE_UNLOCK_LEVEL = 10;
+
+// One-level rule twists. From level 3 on, most non-boss levels roll one.
+export const EVENTS = {
+  feast: { name: 'Star Shower', icon: '🌠', desc: 'Stars rain down. Grab them before the snakes do!' },
+  fog: { name: 'Thick Fog', icon: '🌫️', desc: 'You can only see what’s close. Watch for glowing eyes.' },
+  golden: { name: 'Golden Snake', icon: '👑', desc: 'One snake is pure gold: 3× points and 10 stars if it crashes.' },
+  quake: { name: 'Earthquake', icon: '🌋', desc: 'The ground shifts. Rocks move every few seconds.' },
+  mirror: { name: 'Mirror Twin', icon: '🪞', desc: 'A ghost twin mirrors your moves. Snakes chase whichever is closer.' },
+  hungry: { name: 'Hungry Hour', icon: '🍽️', desc: 'Snakes grow twice as fast but move a little slower.' },
+  tailwind: { name: 'Tailwind', icon: '🌬️', desc: 'Everyone speeds up. You most of all.' },
+  bloom: { name: 'Bramble Bloom', icon: '🌹', desc: 'Brambles regrow in seconds, but wilt fast.' },
+};
+const EVENT_IDS = Object.keys(EVENTS);
+
+export function eventFor(level, rnd) {
+  if (level < 3 || level % 5 === 0) return null;
+  const roll = rnd();
+  if (roll < 0.3) return null;
+  return EVENT_IDS[Math.floor(rnd() * EVENT_IDS.length)];
+}
+
+export const GRADE_COLORS = { S: '#ffb300', A: '#43a047', B: '#1e88e5', C: '#8d6e63' };

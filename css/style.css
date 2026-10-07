@@ -388,3 +388,98 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ================================================================ v2: competitive + mobile */
+html, body { overscroll-behavior: none; }
+
+.hud-mid { display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0; }
+.hud-chips { display: flex; gap: 6px; align-items: center; }
+.nerve {
+  position: relative; overflow: hidden;
+  display: flex; align-items: center; gap: 4px;
+  padding: 1px 10px; border-radius: 999px;
+  background: #e0f7fa; border: 2px solid var(--ink);
+  font-size: 0.75rem; line-height: 1.4; font-variant-numeric: tabular-nums;
+  opacity: 0.35; transition: opacity 0.2s, background 0.3s;
+}
+.nerve b { font-weight: 700; letter-spacing: 0.06em; }
+.nerve span { font-weight: 700; font-size: 0.9rem; position: relative; z-index: 1; }
+.nerve b { position: relative; z-index: 1; }
+.nerve i {
+  position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--t, 0) * 100%);
+  background: rgba(77, 208, 225, 0.45); transition: width 0.1s linear;
+}
+.nerve.on { opacity: 1; }
+.nerve.hot { background: #fff3e0; }
+.nerve.hot i { background: rgba(255, 152, 0, 0.5); }
+.nerve.blaze { background: #ffebee; animation: pulse 0.35s infinite alternate; }
+.nerve.blaze i { background: rgba(244, 67, 54, 0.5); }
+.nerve.bump { animation: nerve-bump 0.25s; }
+@keyframes nerve-bump { 40% { transform: scale(1.25); } }
+
+.event-chip {
+  padding: 1px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+  background: var(--ink); color: #fff; white-space: nowrap;
+}
+.banner-event {
+  margin-top: 6px; display: inline-block; padding: 3px 12px; border-radius: 999px;
+  background: var(--ink); color: #fff; font-weight: 600; font-size: 0.95rem;
+}
+.banner-event small { display: block; font-weight: 400; font-size: 0.8rem; opacity: 0.85; }
+
+.daily-card {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  width: 100%; margin-top: 14px; padding: 10px 14px; text-align: left;
+  border: 3px solid var(--ink); border-radius: 16px;
+  background: linear-gradient(135deg, #fff1c1, #ffd27a);
+  box-shadow: 0 4px 0 var(--ink);
+}
+.daily-card:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.daily-left, .daily-right { display: flex; flex-direction: column; line-height: 1.2; }
+.daily-right { align-items: flex-end; }
+.daily-card b { font-size: 1.1rem; }
+.daily-card small { font-size: 0.78rem; opacity: 0.8; }
+.streak { font-weight: 700; font-size: 1.05rem; }
+.daily-card.done { background: linear-gradient(135deg, #e8f5e9, #b9e4a8); }
+
+.grade-row { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 8px; text-align: left; }
+.grade-info .win-title { margin: 0; }
+.grade-stamp {
+  flex: none; width: 84px; height: 84px; border-radius: 22px;
+  display: grid; place-items: center;
+  font-size: 3.2rem; font-weight: 700; color: #fff;
+  background: var(--g, #43a047);
+  border: 4px solid var(--ink); box-shadow: 0 6px 0 var(--ink);
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.25);
+  animation: stamp 0.55s cubic-bezier(.2, 1.6, .4, 1) both;
+}
+.grade-stamp.S { background: linear-gradient(135deg, #ffe082, #ff8f00); animation: stamp 0.55s cubic-bezier(.2, 1.6, .4, 1) both, glow 1.2s 0.6s infinite alternate; }
+@keyframes stamp { from { transform: scale(2.4) rotate(-18deg); opacity: 0; } to { transform: rotate(-6deg); opacity: 1; } }
+@keyframes glow { to { box-shadow: 0 6px 0 var(--ink), 0 0 28px #ffc107; } }
+.grade-detail { font-size: 0.9rem; opacity: 0.85; margin-top: 2px; }
+.grade-detail span { display: inline-block; margin-right: 10px; }
+
+.over-daily { margin: 6px 0; font-weight: 600; }
+.over-grades { font-size: 1.3rem; letter-spacing: 2px; margin: 4px 0 0; min-height: 1em; }
+.btn-gold { background: #f5a623; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 50;
+  transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+  background: var(--ink); color: #fff; padding: 10px 18px; border-radius: 999px; font-weight: 600;
+  transition: opacity 0.2s, transform 0.25s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+.touch-only, .haptics-only { display: none; }
+.is-touch .touch-only { display: inline-flex; }
+.is-touch p.touch-only { display: block; }
+.has-haptics .haptics-only { display: inline-flex; }
+
+@media (max-width: 640px) {
+  .nerve { font-size: 0.65rem; padding: 0 8px; }
+  .nerve b { display: none; }
+  .event-chip { font-size: 0.65rem; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+  .grade-stamp { width: 64px; height: 64px; font-size: 2.4rem; border-radius: 16px; }
+  .daily-card b { font-size: 1rem; }
+}

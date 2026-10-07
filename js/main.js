@@ -1,11 +1,11 @@
 // Wires the engine, renderer, audio and DOM screens together.
-import { Game } from './engine.js';
+import { Game, GRADE_STARS } from './engine.js';
 import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
 import { Input } from './input.js';
 import { load, store } from './save.js';
 import {
-  WORLDS, MODES, UPGRADES, SKINS, TIPS, GENERIC_TIPS, CORE_UNLOCK_LEVEL,
+  WORLDS, MODES, UPGRADES, SKINS, TIPS, GENERIC_TIPS, CORE_UNLOCK_LEVEL, EVENTS, GRADE_COLORS,
 } from './config.js';
 
 const $ = sel => document.querySelector(sel);
@@ -16,6 +16,36 @@ const canvas = $('#game');
 const renderer = new Renderer(canvas);
 const input = new Input();
 const skin = () => SKINS.find(s => s.id === save.skin) || SKINS[0];
+save.settings = { controls: 'swipe', haptics: true, ...save.settings };
+save.daily = { day: '', best: null, attempts: 0, streak: 0, lastDay: '', ...(save.daily || {}) };
+
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+const canVibrate = typeof navigator.vibrate === 'function';
+document.documentElement.classList.toggle('is-touch', isTouch);
+document.documentElement.classList.toggle('has-haptics', canVibrate && isTouch);
+const buzz = pattern => { if (canVibrate && save.settings.haptics) try { navigator.vibrate(pattern); } catch { /* unsupported */ } };
+
+// ------------------------------------------------------------------ daily run
+// Everyone gets the same seeded levels, events and perk offers each local day.
+const DAY_ONE = Date.UTC(2026, 9, 1);
+function today(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const num = Math.floor((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - DAY_ONE) / 864e5) + 1;
+  return { key, seed: d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(), num };
+}
+function syncDailyDay() {
+  const t = today();
+  if (save.daily.day !== t.key) {
+    save.daily.day = t.key;
+    save.daily.best = null;
+    save.daily.attempts = 0;
+  }
+  // A streak survives only if yesterday (or today) was played.
+  if (save.daily.lastDay && save.daily.lastDay !== t.key && save.daily.lastDay !== today(-1).key) save.daily.streak = 0;
+}
+let runKind = 'normal';
 
 let screen = 'title';      // title | play | paused | perks | over
 let returnTo = 'title';    // where "Back" from help/orchard goes
@@ -69,7 +99,8 @@ function goTitle() {
   audio.startMusic(0);
 }
 
-function startRun() {
+function startRun(kind = runKind) {
+  runKind = kind;
   audio.unlock();
   if (!save.seenHelp) {
     save.seenHelp = true;
@@ -86,7 +117,15 @@ function startRun() {
   persist();
   requestAnimationFrame(() => {
     renderer.resize();
-    game.newRun({ mode: save.mode, upgrades: save.upgrades, ...gridFor() });
+    if (runKind === 'daily') {
+      // Daily runs are fair: Classic rules, no Orchard upgrades.
+      syncDailyDay();
+      save.daily.attempts++;
+      persist();
+      game.newRun({ mode: 'classic', upgrades: {}, seed: today().seed, ...gridFor() });
+    } else {
+      game.newRun({ mode: save.mode, upgrades: save.upgrades, ...gridFor() });
+    }
   });
 }
 
@@ -130,11 +169,31 @@ function renderTitle() {
     wrap.appendChild(b);
   }
   if (save.mode === 'core' && !coreOpen) { save.mode = 'classic'; renderTitle(); }
+
+  syncDailyDay();
+  const t = today(), d = save.daily;
+  $('#daily-title').textContent = `Daily Run #${t.num}`;
+  $('#daily-streak').textContent = `\ud83d\udd25 ${d.streak}`;
+  $('#daily-best').textContent = d.best ? `Today: Lv ${d.best.level} \u00b7 ${d.best.score.toLocaleString()}` : 'Not played today';
+  $('#daily-sub').textContent = d.best ? `${d.attempts} ${d.attempts === 1 ? 'try' : 'tries'} \u00b7 beat your score!` : 'Same levels for everyone today';
+  $('#btn-daily').classList.toggle('done', !!d.best);
+}
+
+let toastTimer = null;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
 function syncToggles() {
   for (const id of ['#tgl-music', '#tgl-music2']) $(id).setAttribute('aria-pressed', String(save.settings.music));
   for (const id of ['#tgl-sfx', '#tgl-sfx2']) $(id).setAttribute('aria-pressed', String(save.settings.sfx));
+  $('#tgl-haptics').setAttribute('aria-pressed', String(save.settings.haptics));
+  for (const b of $$('[data-controls]')) b.textContent = save.settings.controls === 'swipe' ? '\u261d\ufe0f Swipe' : '\ud83d\udd79\ufe0f Joystick';
+  input.touchMode = save.settings.controls;
   audio.setMusic(save.settings.music);
   audio.setSfx(save.settings.sfx);
 }
@@ -216,6 +275,7 @@ function openOrchard(from) {
 const hud = {
   level: $('#hud-level'), world: $('#hud-world'), score: $('#hud-score'), stars: $('#hud-stars'),
   bites: $('#hud-bites'), thorn: $('#thorn-count'),
+  nerve: $('#hud-nerve'), nerveX: $('#hud-nerve-x'), nerveBar: $('#hud-nerve-bar'), event: $('#hud-event'),
   ab: Object.fromEntries($$('.ability').map(b => [b.dataset.ab, b])),
   last: {},
 };
@@ -253,7 +313,7 @@ function updateHud() {
 
   const cds = {
     dash: a.dashCd / st.dashCd,
-    thorn: g.thorns > 0 ? 0 : 1 - g.thornRegenT / st.thornRegen,
+    thorn: g.thorns > 0 ? 0 : 1 - g.thornRegenT / (st.thornRegen * g.ev.thornRegen),
     rot: g.rotUnlocked ? a.rotCd / (st.rotCd + st.rotDur) : 1,
     decoy: a.decoyCd / st.decoyCd,
   };
@@ -268,6 +328,20 @@ function updateHud() {
   setOnce('rotLock', g.rotUnlocked, v => hud.ab.rot.classList.toggle('locked', !v));
   setOnce('rotActive', a.rot > 0, v => hud.ab.rot.classList.toggle('active', v));
   setOnce('decoy', st.decoy, v => hud.ab.decoy.classList.toggle('hidden', !v));
+
+  setOnce('nerve', g.nerve, n => {
+    hud.nerveX.textContent = '\u00d7' + g.nerveMult.toFixed(2).replace(/\.?0+$/, '');
+    hud.nerve.classList.toggle('on', n > 0);
+    hud.nerve.classList.toggle('hot', n >= 6 && n < 12);
+    hud.nerve.classList.toggle('blaze', n >= 12);
+    if (n > 0) { hud.nerve.classList.remove('bump'); void hud.nerve.offsetWidth; hud.nerve.classList.add('bump'); }
+  });
+  setOnce('nerveT', Math.round(Math.max(0, g.nerveT) / 4 * 50), v => hud.nerve.style.setProperty('--t', g.nerve ? v / 50 : 0));
+  setOnce('event', g.event + '|' + g.level, () => {
+    const ev = EVENTS[g.event];
+    hud.event.classList.toggle('hidden', !ev && !g.daily);
+    hud.event.textContent = [g.daily ? `Daily #${today().num}` : '', ev ? `${ev.icon} ${ev.name}` : ''].filter(Boolean).join(' \u00b7 ');
+  });
 }
 
 // ------------------------------------------------------------------ banner
@@ -282,6 +356,11 @@ function showBanner(g) {
   foe.classList.toggle('boss', p.boss);
   let tip = TIPS[g.level];
   if (!tip && g.level > 6) tip = GENERIC_TIPS[(g.level * 7) % GENERIC_TIPS.length];
+  const ev = EVENTS[g.event];
+  const be = $('#banner-event');
+  be.classList.toggle('hidden', !ev);
+  if (ev) be.innerHTML = `${ev.icon} ${ev.name}<small>${ev.desc}</small>`;
+  if (ev && !TIPS[g.level]) tip = '';
   $('#banner-tip').textContent = tip || '';
   $('#banner').classList.add('show');
   clearTimeout(bannerTimer);
@@ -298,7 +377,7 @@ function onEvent(name, data, g) {
     case 'level':
       showBanner(g);
       // Give players time to read a tip before the snake starts moving.
-      if ($('#banner-tip').textContent) g.countT = 4;
+      if ($('#banner-tip').textContent || g.event) g.countT = 4;
       audio.startMusic(g.world, g.params.boss);
       break;
     case 'go':
@@ -312,9 +391,21 @@ function onEvent(name, data, g) {
       break;
     case 'kill':
       save.stats.snakes++;
+      buzz([25, 40, 25]);
       break;
     case 'bite':
       hud.bites.classList.remove('hit'); void hud.bites.offsetWidth; hud.bites.classList.add('hit');
+      buzz([80, 50, 80]);
+      break;
+    case 'nerve':
+      if (data > 0) { audio.playNear(data); buzz(12); }
+      break;
+    case 'quake':
+      buzz([120, 40, 60]);
+      break;
+    case 'bump':
+      // In swipe mode the apple rolls until it hits something, then waits.
+      if (input.touchMode === 'swipe' && input.joy) input.joy = null;
       break;
     case 'nope': {
       const b = hud.ab[data];
@@ -337,6 +428,14 @@ function showPerks(g) {
   input.clear();
   perkChoices = g.perkChoices(3);
   $('#perks-title').textContent = g.params.boss ? 'Boss beaten!' : `Level ${g.level} clear!`;
+  const gr = g.lastGrade || 'C';
+  const stamp = $('#grade-stamp');
+  stamp.textContent = gr;
+  stamp.className = 'grade-stamp ' + gr;
+  stamp.style.setProperty('--g', GRADE_COLORS[gr]);
+  const secs = Math.round(g.levelTime);
+  $('#grade-detail').innerHTML = `<span>\u23f1 ${secs}s / par ${Math.round(g.par)}s</span><span>\ud83c\udf4e ${g.levelBites ? g.levelBites + ' bite' + (g.levelBites > 1 ? 's' : '') : 'no bites'}</span><span>\u26a1 nerve ${g.nervePeak}</span>` + (GRADE_STARS[gr] ? `<span>+${GRADE_STARS[gr]}\u2605 grade bonus</span>` : '');
+  if (gr === 'S' || gr === 'A') audio.play('grade');
   $('#perks-sub').textContent = `Score ${Math.floor(g.score).toLocaleString()} · ★ ${g.starsRun} this run · +1 bite healed`;
   const wrap = $('#perk-cards');
   wrap.innerHTML = '';
@@ -371,12 +470,33 @@ function showGameOver(g) {
   screen = 'over';
   hideBanner();
   input.enabled = false;
-  const best = save.best[g.mode] || (save.best[g.mode] = { score: 0, level: 0 });
   const score = Math.floor(g.score);
-  const isBest = score > best.score;
-  if (isBest) best.score = score;
-  best.level = Math.max(best.level, g.level);
+  let isBest = false;
+  const dailyEl = $('#over-daily');
+  dailyEl.classList.toggle('hidden', !g.daily);
+  if (g.daily) {
+    syncDailyDay();
+    const d = save.daily, t = today();
+    isBest = !d.best || score > d.best.score;
+    if (isBest) d.best = { score, level: g.level, grades: g.grades.join(''), nerve: g.nerveBest };
+    let reward = 0;
+    if (d.lastDay !== t.key) {
+      d.streak = d.lastDay === today(-1).key ? d.streak + 1 : 1;
+      d.lastDay = t.key;
+      reward = 20 + Math.min(30, d.streak * 5);
+      save.stars += reward;
+      save.stats.starsEarned += reward;
+    }
+    dailyEl.textContent = `Daily #${t.num} \u00b7 \ud83d\udd25 ${d.streak}-day streak` + (reward ? ` \u00b7 +${reward}\u2605 daily reward` : ` \u00b7 best today ${d.best.score.toLocaleString()}`);
+  } else {
+    const best = save.best[g.mode] || (save.best[g.mode] = { score: 0, level: 0 });
+    isBest = score > best.score;
+    if (isBest) best.score = score;
+    best.level = Math.max(best.level, g.level);
+  }
   persist(true);
+  lastRun = { daily: g.daily, num: today().num, level: g.level, score, grades: g.grades.slice(), nerve: g.nerveBest, kills: { ...g.kills }, mode: g.mode };
+  $('#over-grades').textContent = g.grades.map(x => GRADE_EMOJI[x]).join('');
   const k = g.kills;
   const snakes = Object.values(k).reduce((a, b) => a + b, 0);
   $('#over-stats').innerHTML = `
@@ -384,8 +504,8 @@ function showGameOver(g) {
     <div class="stat"><b>${score.toLocaleString()}</b><small>Score</small></div>
     <div class="stat"><b>★ ${g.starsRun}</b><small>Stars earned</small></div>
     <div class="stat"><b>${snakes}</b><small>Snakes beaten</small></div>
-    <div class="stat"><b>${k.poison}</b><small>Poisoned</small></div>
-    <div class="stat"><b>${k.thorns}</b><small>Thorned</small></div>`;
+    <div class="stat"><b>${g.closeCalls}</b><small>Close calls</small></div>
+    <div class="stat"><b>\u00d7${(1 + 0.25 * g.nerveBest).toFixed(2).replace(/\.?0+$/, '')}</b><small>Best nerve</small></div>`;
   $('#over-best').classList.toggle('hidden', !isBest);
   const c = $('#over-apple').getContext('2d');
   c.clearRect(0, 0, 140, 140);
@@ -393,8 +513,45 @@ function showGameOver(g) {
   show('over');
 }
 
+const GRADE_EMOJI = { S: '\ud83c\udf1f', A: '\ud83d\udfe9', B: '\ud83d\udfe6', C: '\ud83d\udfeb' };
+let lastRun = null;
+
+async function shareRun() {
+  if (!lastRun) return;
+  const r = lastRun;
+  const snakes = Object.values(r.kills).reduce((a, b) => a + b, 0);
+  const head = r.daily ? `\ud83c\udf4e The Apple \u00b7 Daily #${r.num}` : `\ud83c\udf4e The Apple \u00b7 ${MODES[r.mode].name}`;
+  const text = [
+    head,
+    `Level ${r.level} \u00b7 ${r.score.toLocaleString()} pts`,
+    r.grades.map(x => GRADE_EMOJI[x]).join('') || '\u2014',
+    `\ud83d\udc0d\ud83d\udca5 ${snakes} \u00b7 \u26a1 nerve \u00d7${(1 + 0.25 * r.nerve).toFixed(2).replace(/\.?0+$/, '')}`,
+    'Can you beat it? mattlavergne.com/apple',
+  ].join('\n');
+  try {
+    if (navigator.share && isTouch) { await navigator.share({ text }); return; }
+    await navigator.clipboard.writeText(text);
+    toast('Result copied! Paste it anywhere.');
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    toast('Couldn\u2019t copy. Your browser blocked it.');
+  }
+}
+
 // ------------------------------------------------------------------ wiring
-$('#btn-play').addEventListener('click', () => { audio.play('click'); startRun(); });
+$('#btn-play').addEventListener('click', () => { audio.play('click'); startRun('normal'); });
+$('#btn-daily').addEventListener('click', () => { audio.play('click'); startRun('daily'); });
+$('#btn-share').addEventListener('click', () => shareRun());
+$('#tgl-haptics').addEventListener('click', () => {
+  save.settings.haptics = !save.settings.haptics;
+  persist(); syncToggles();
+  buzz(30);
+});
+for (const b of $$('[data-controls]')) b.addEventListener('click', () => {
+  save.settings.controls = save.settings.controls === 'swipe' ? 'joystick' : 'swipe';
+  persist(); syncToggles();
+  toast(save.settings.controls === 'swipe' ? 'Swipe to roll, tap to stop.' : 'Hold and drag to steer.');
+});
 $('#btn-orchard').addEventListener('click', () => { audio.unlock(); audio.play('click'); openOrchard('title'); });
 $('#btn-help').addEventListener('click', () => { audio.unlock(); audio.play('click'); returnTo = 'title'; show('help'); });
 $$('[data-back]').forEach(b => b.addEventListener('click', () => {
@@ -440,13 +597,13 @@ input.onMeta = (what, e) => {
   if (screen === 'play') { e.preventDefault(); pause(); }
   else if (screen === 'paused') { e.preventDefault(); resume(); }
 };
-input.attachJoystick($('#stage'), $('#joy'));
+input.attachTouch($('#stage'), $('#joy'));
 
 window.addEventListener('keydown', e => {
   if (screen === 'perks' && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
     choosePerk(+e.code.slice(5) - 1);
   } else if (screen === 'title' && (e.code === 'Enter') && $('#screen-title').classList.contains('show')) {
-    startRun();
+    startRun('normal');
   }
 });
 // First interaction anywhere unlocks audio (browsers require a gesture).
@@ -473,22 +630,33 @@ window.addEventListener('resize', () => {
 // ------------------------------------------------------------------ main loop
 const logo = $('#logo-apple').getContext('2d');
 let last = performance.now();
+let lastError = 0;
 function frame(now) {
+  // Schedule first: one bad frame must never freeze the game.
+  requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (screen !== 'paused') game.update(dt, screen === 'play' ? input : null);
-  if (game.state !== 'idle') renderer.draw(game, skin());
-  updateHud();
+  try {
+    if (screen !== 'paused') game.update(dt, screen === 'play' ? input : null);
+    if (game.state !== 'idle') renderer.draw(game, skin());
+    updateHud();
+  } catch (e) {
+    if (now - lastError > 5000) { lastError = now; console.error(e); }
+  }
   if (screen === 'title') {
     logo.clearRect(0, 0, 180, 180);
     const bob = Math.sin(now / 400) * 4;
     drawApple(logo, 90, 100 + bob, 58, { skin: skin(), time: now / 1000, look: { x: Math.sin(now / 900), y: 0.3 }, blink: Math.sin(now / 700) > 0.97 });
   }
-  requestAnimationFrame(frame);
 }
 
 // ?debug exposes the game for testing, e.g. __game.level = 12; __game.startLevel()
 if (new URLSearchParams(location.search).has('debug')) window.__game = game;
+
+// Offline play + installable app. Skipped on file:// and plain-http hosts.
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
 
 syncToggles();
 renderer.resize();
