@@ -1036,11 +1036,15 @@ window.addEventListener('keydown', e => {
     openMap();
   }
 });
-// First interaction anywhere unlocks audio (browsers require a gesture).
-window.addEventListener('pointerdown', () => audio.unlock(), { once: true });
-window.addEventListener('keydown', () => audio.unlock(), { once: true });
+// Audio may only start inside a gesture. Touch screens only count the finger
+// lifting (pointerup / touchend / click), not touching down, so listen for
+// all of them and keep trying until the audio is really running.
+for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
+  window.addEventListener(type, () => { if (!audio.isRunning()) audio.unlock(); }, { capture: true, passive: true });
+}
 
 document.addEventListener('visibilitychange', () => {
+  audio.setBackground(document.hidden);
   if (document.hidden) { pause(); persist(true); }
 });
 window.addEventListener('pagehide', () => {
@@ -1084,7 +1088,7 @@ function frame(now) {
 }
 
 // ?debug exposes the game for testing, e.g. __game.level = 12; __game.startLevel()
-if (new URLSearchParams(location.search).has('debug')) window.__game = game;
+if (new URLSearchParams(location.search).has('debug')) { window.__game = game; window.__audio = audio; }
 
 // Offline play + installable app. Skipped on file:// and plain-http hosts.
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
