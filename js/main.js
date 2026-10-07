@@ -4,6 +4,7 @@ import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
 import { Input } from './input.js';
 import { load, store } from './save.js';
+import { ADVENTURE_LEVELS, LEVELS_PER_WORLD, adventureLevel, objectiveText, OBJECTIVE_ICON } from './levels.js';
 import {
   WORLDS, MODES, UPGRADES, SKINS, TIPS, GENERIC_TIPS, CORE_UNLOCK_LEVEL, EVENTS, GRADE_COLORS,
   CONTRACTS, CONTRACT_REWARD, CONTRACT_BONUS, nemesisName, nemesisBounty,
@@ -20,6 +21,13 @@ const skin = () => SKINS.find(s => s.id === save.skin) || SKINS[0];
 save.settings = { controls: 'swipe', haptics: true, ...save.settings };
 save.daily = { day: '', best: null, attempts: 0, streak: 0, lastDay: '', ...(save.daily || {}) };
 save.nemesis = save.nemesis || null;
+// Adventure progress: highest unlocked level, best stars (1-3) and score per level.
+save.adventure = { unlocked: 1, stars: {}, best: {}, ...(save.adventure || {}) };
+let advLevel = 1;
+const totalAdvStars = () => Object.values(save.adventure.stars).reduce((a, b) => a + b, 0);
+// 3 stars: no bites. 2 stars: one bite. 1 star: cleared.
+const starsFor = bites => (bites === 0 ? 3 : bites === 1 ? 2 : 1);
+const starStr = n => '\u2605'.repeat(n) + '\u2606'.repeat(3 - n);
 save.stats.nemesesBeaten = save.stats.nemesesBeaten || 0;
 
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
@@ -121,12 +129,14 @@ function startRun(kind = runKind) {
   persist();
   requestAnimationFrame(() => {
     renderer.resize();
-    if (runKind === 'daily') {
+    if (runKind === 'adventure') {
+      game.newRun({ adventure: adventureLevel(advLevel), upgrades: save.upgrades, ...gridFor() });
+    } else if (runKind === 'daily') {
       // Daily runs are fair: Classic rules, no Orchard upgrades.
       syncDailyDay();
       save.daily.attempts++;
       persist();
-      game.newRun({ mode: 'classic', upgrades: {}, seed: today().seed, ...gridFor() });
+      game.newRun({ mode: 'classic', upgrades: {}, seed: today().seed, daily: true, ...gridFor() });
     } else {
       game.newRun({ mode: save.mode, upgrades: save.upgrades, nemesis: save.nemesis, ...gridFor() });
     }
@@ -182,12 +192,115 @@ function renderTitle() {
   $('#daily-sub').textContent = d.best ? `${d.attempts} ${d.attempts === 1 ? 'try' : 'tries'} \u00b7 beat your score!` : 'Same levels for everyone today';
   $('#btn-daily').classList.toggle('done', !!d.best);
   renderContracts();
+  const next = Math.min(ADVENTURE_LEVELS, save.adventure.unlocked);
+  $('#adv-sub').textContent = `Level ${next} \u00b7 \u2605 ${totalAdvStars()}/${ADVENTURE_LEVELS * 3}`;
   const w = $('#wanted');
   w.classList.toggle('hidden', !save.nemesis);
   if (save.nemesis) {
     const n = save.nemesis;
     w.innerHTML = `<span class="w-skull">\u2620</span><span class="w-text"><b>${nemesisName(n)}</b><small>${'\u2605'.repeat(n.rank)} \u00b7 ate you ${n.wins}\u00d7 \u00b7 lurking somewhere in levels 3\u20136</small></span><span class="w-bounty">${nemesisBounty(n)}\u2605<small>bounty</small></span>`;
   }
+}
+
+// ------------------------------------------------------------------ adventure map
+const MAP_ROW = 84;
+function openMap() {
+  screen = 'map';
+  audio.setIntensity(1);
+  setPlaying(false);
+  hideBanner();
+  renderMap();
+  show('map');
+  if (game.state !== 'idle' && !game.demo) requestAnimationFrame(() => { renderer.resize(); startDemo(); });
+  // Scroll so the next level to play is in view.
+  requestAnimationFrame(() => {
+    const cur = $('#map-scroll .node.current') || $('#map-scroll .node');
+    if (cur) cur.scrollIntoView({ block: 'center' });
+  });
+}
+
+function renderMap() {
+  const A = save.adventure;
+  $('#map-stars').textContent = totalAdvStars();
+  const wrap = $('#map-scroll');
+  wrap.innerHTML = '';
+  for (let w = 0; w < ADVENTURE_LEVELS / LEVELS_PER_WORLD; w++) {
+    const W = WORLDS[w];
+    const first = w * LEVELS_PER_WORLD + 1;
+    let wStars = 0;
+    for (let i = 0; i < LEVELS_PER_WORLD; i++) wStars += A.stars[first + i] || 0;
+    const sec = document.createElement('section');
+    sec.className = 'map-world' + (W.dark ? ' dark' : '') + (first > A.unlocked ? ' locked' : '');
+    sec.style.background = `linear-gradient(${W.bg[0]}, ${W.bg[1]})`;
+    const h = LEVELS_PER_WORLD * MAP_ROW;
+    const pts = [];
+    let nodes = '';
+    for (let i = 0; i < LEVELS_PER_WORLD; i++) {
+      const n = first + i;
+      const x = 50 + 30 * Math.sin(n * 0.85), y = i * MAP_ROW + MAP_ROW / 2;
+      pts.push(`${x},${y}`);
+      const d = adventureLevel(n);
+      const st = A.stars[n] || 0;
+      const cls = ['node', d.boss ? 'boss' : '', n > A.unlocked ? 'locked' : '', n === A.unlocked ? 'current' : '', st ? 'done' : ''].join(' ');
+      nodes += `<button class="${cls}" data-level="${n}" style="left:${x}%;top:${y}px" aria-label="Level ${n}${n > A.unlocked ? ' (locked)' : ''}">
+        ${d.boss ? '<span class="crown">\ud83d\udc51</span>' : ''}<b>${n > A.unlocked ? '\ud83d\udd12' : n}</b>
+        <span class="nstars">${st ? starStr(st) : n <= A.unlocked ? OBJECTIVE_ICON[d.objective.type] : ''}</span>
+        ${n === A.unlocked ? '<span class="you">\ud83c\udf4e</span>' : ''}</button>`;
+    }
+    sec.innerHTML = `<div class="mw-head"><b>World ${w + 1} \u00b7 ${W.name}</b><small>\u2605 ${wStars}/${LEVELS_PER_WORLD * 3}</small></div>
+      <div class="mw-path" style="height:${h}px">
+        <svg viewBox="0 0 100 ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts.join(' ')}" /></svg>
+        ${nodes}
+      </div>`;
+    wrap.appendChild(sec);
+  }
+}
+
+function openLevelCard(n) {
+  advLevel = n;
+  const d = adventureLevel(n), A = save.adventure;
+  $('#lc-world').textContent = `World ${d.world + 1} \u00b7 ${WORLDS[d.world].name}`;
+  $('#lc-title').textContent = (d.boss ? '\ud83d\udc51 Boss \u00b7 ' : '') + `Level ${n}`;
+  $('#lc-name').textContent = d.name;
+  $('#lc-goal').innerHTML = `${OBJECTIVE_ICON[d.objective.type]} <b>${objectiveText(d.objective)}</b>${d.objective.type !== 'crash' ? '<small>or crash every snake</small>' : ''}`;
+  const ev = EVENTS[d.event];
+  $('#lc-meta').innerHTML = `<span>\ud83d\udc0d ${d.snakes} snake${d.snakes > 1 ? 's' : ''}</span>${ev && d.event !== 'golden' ? `<span>${ev.icon} ${ev.name}</span>` : ''}<span>Difficulty ${'\u25cf'.repeat(Math.min(5, Math.ceil(d.diff / 3.2)))}${'\u25cb'.repeat(5 - Math.min(5, Math.ceil(d.diff / 3.2)))}</span>`;
+  const st = A.stars[n] || 0;
+  $('#lc-stars').innerHTML = st ? `<span class="big-stars">${starStr(st)}</span><small>Best ${(A.best[n] || 0).toLocaleString()} pts \u00b7 3\u2605 = clear it without a bite</small>` : '<small>3\u2605 = clear it without a bite</small>';
+  show('level');
+}
+
+function showResult(g) {
+  screen = 'result';
+  hideBanner();
+  input.clear();
+  audio.setIntensity(1);
+  const n = g.adventure.n, A = save.adventure;
+  const stars = starsFor(g.levelBites);
+  const score = Math.floor(g.score);
+  const firstClear = !A.stars[n];
+  const improved = stars > (A.stars[n] || 0);
+  A.stars[n] = Math.max(A.stars[n] || 0, stars);
+  A.best[n] = Math.max(A.best[n] || 0, score);
+  const unlockedNew = n === A.unlocked && n < ADVENTURE_LEVELS;
+  if (unlockedNew) A.unlocked = n + 1;
+  persist(true);
+  $('#res-stars').innerHTML = [0, 1, 2].map(i => `<span class="rs ${i < stars ? 'on' : ''}" style="animation-delay:${0.15 + i * 0.25}s">\u2605</span>`).join('');
+  $('#res-title').textContent = g.adventure.boss ? `Boss beaten! Level ${n}` : `Level ${n} complete!`;
+  const gr = g.lastGrade || 'C';
+  $('#res-detail').innerHTML = `<span>${OBJECTIVE_ICON[g.objective.type]} ${objectiveText(g.objective)}</span><span>\ud83c\udf4e ${g.levelBites ? g.levelBites + ' bite' + (g.levelBites > 1 ? 's' : '') : 'no bites'}</span><span>grade ${gr}</span>` + (improved && !firstClear ? '<span>new best stars!</span>' : '');
+  $('#res-stats').innerHTML = `
+    <div class="stat"><b>${score.toLocaleString()}</b><small>Score</small></div>
+    <div class="stat"><b>\u2605 ${g.starsRun}</b><small>Stars earned</small></div>
+    <div class="stat"><b>\u00d7${(1 + 0.25 * g.nerveBest).toFixed(2).replace(/\.?0+$/, '')}</b><small>Best nerve</small></div>`;
+  const un = $('#res-unlock');
+  const nextWorld = unlockedNew && n % LEVELS_PER_WORLD === 0;
+  un.classList.toggle('hidden', !nextWorld);
+  if (nextWorld) un.textContent = `\ud83c\udf0d New world unlocked: ${WORLDS[Math.floor(n / LEVELS_PER_WORLD)].name}!`;
+  $('#res-next').classList.toggle('hidden', n >= ADVENTURE_LEVELS);
+  lastRun = { adv: n, stars, level: n, score, grades: g.grades.slice(), nerve: g.nerveBest, kills: { ...g.kills }, mode: 'classic' };
+  if (stars === 3) audio.play('grade');
+  show('result');
 }
 
 // ------------------------------------------------------------------ daily contracts
@@ -343,7 +456,7 @@ function openOrchard(from) {
 const hud = {
   level: $('#hud-level'), world: $('#hud-world'), score: $('#hud-score'), stars: $('#hud-stars'),
   bites: $('#hud-bites'), thorn: $('#thorn-count'), hunger: $('#hud-hunger'),
-  nerve: $('#hud-nerve'), nerveX: $('#hud-nerve-x'), nerveBar: $('#hud-nerve-bar'), event: $('#hud-event'),
+  goal: $('#hud-goal'), nerve: $('#hud-nerve'), nerveX: $('#hud-nerve-x'), nerveBar: $('#hud-nerve-bar'), event: $('#hud-event'),
   ab: Object.fromEntries($$('.ability').map(b => [b.dataset.ab, b])),
   last: {},
 };
@@ -412,6 +525,15 @@ function updateHud() {
     hud.hunger.classList.toggle('frenzy', g.hungerStage === 2);
     audio.setIntensity(screen === 'play' ? g.hunger : 1);
   });
+  const o = g.objective;
+  let goal = '';
+  if (g.adventure) {
+    if (o.type === 'survive') goal = `\u23f1\ufe0f ${Math.max(0, Math.ceil(o.target - g.levelTime))}s left`;
+    else if (o.type === 'stars') goal = `\u2b50 ${o.progress}/${o.target}`;
+    else if (o.type === 'golden') goal = '\ud83d\udc51 Crash the golden snake';
+    else goal = `\ud83d\udca5 ${g.snakes.filter(s => s.dead).length}/${g.snakes.length} crashed`;
+  }
+  setOnce('goal', goal, v => { hud.goal.textContent = v; hud.goal.classList.toggle('hidden', !v); hud.goal.classList.toggle('urgent', o.type === 'survive' && o.target - g.levelTime < 6); });
   setOnce('event', g.event + '|' + g.level, () => {
     const ev = EVENTS[g.event];
     hud.event.classList.toggle('hidden', !ev && !g.daily);
@@ -443,6 +565,11 @@ function showBanner(g) {
   if (ev) be.innerHTML = `${ev.icon} ${ev.name}<small>${ev.desc}</small>`;
   if (ev && !TIPS[g.level]) tip = '';
   if (g.snakes.some(s => s.nemesis)) tip = '';
+  if (g.adventure) {
+    const d = g.adventure;
+    $('#banner-level').textContent = (d.boss ? '\ud83d\udc51 BOSS \u00b7 ' : '') + `Level ${d.n} \u00b7 ${d.name}`;
+    tip = `${OBJECTIVE_ICON[g.objective.type]} Goal: ${objectiveText(g.objective)}${g.objective.type !== 'crash' ? ' (or crash every snake)' : ''}.` + (TIPS[d.n] && d.n <= 6 ? ' ' + TIPS[d.n] : '');
+  }
   $('#banner-tip').textContent = tip || '';
   $('#banner').classList.add('show');
   clearTimeout(bannerTimer);
@@ -460,8 +587,10 @@ function onEvent(name, data, g) {
       showBanner(g);
       // Give players time to read a tip before the snake starts moving.
       if ($('#banner-tip').textContent || g.event || g.snakes.some(s => s.nemesis)) g.countT = 4;
-      contractProgress('level', g.level, true);
-      contractProgress('deep', g.level, true);
+      if (!g.adventure) {
+        contractProgress('level', g.level, true);
+        contractProgress('deep', g.level, true);
+      }
       audio.startMusic(g.world, g.params.boss);
       break;
     case 'go':
@@ -527,7 +656,8 @@ function onEvent(name, data, g) {
       if (!g.levelBites) contractProgress('unbitten', 1);
       if (g.hungerStage === 2) contractProgress('frenzy', 1);
       if (g.lastGrade === 'S') contractProgress('grade', 1);
-      showPerks(g);
+      if (g.adventure) showResult(g);
+      else showPerks(g);
       break;
     case 'over':
       showGameOver(g);
@@ -589,6 +719,9 @@ function showGameOver(g) {
   let isBest = false;
   const dailyEl = $('#over-daily');
   dailyEl.classList.toggle('hidden', !g.daily);
+  $('#btn-again').textContent = g.adventure ? 'Try again' : 'Play again';
+  $('#btn-over-menu').textContent = g.adventure ? 'Map' : 'Menu';
+  $('#over-title').textContent = g.adventure ? `Crunch! Eaten on level ${g.adventure.n}.` : 'Crunch! You got eaten.';
   if (g.daily) {
     syncDailyDay();
     const d = save.daily, t = today();
@@ -603,6 +736,8 @@ function showGameOver(g) {
       save.stats.starsEarned += reward;
     }
     dailyEl.textContent = `Daily #${t.num} \u00b7 \ud83d\udd25 ${d.streak}-day streak` + (reward ? ` \u00b7 +${reward}\u2605 daily reward` : ` \u00b7 best today ${d.best.score.toLocaleString()}`);
+  } else if (g.adventure) {
+    isBest = false;
   } else {
     const best = save.best[g.mode] || (save.best[g.mode] = { score: 0, level: 0 });
     isBest = score > best.score;
@@ -655,10 +790,10 @@ async function shareRun() {
   if (!lastRun) return;
   const r = lastRun;
   const snakes = Object.values(r.kills).reduce((a, b) => a + b, 0);
-  const head = r.daily ? `\ud83c\udf4e The Apple \u00b7 Daily #${r.num}` : `\ud83c\udf4e The Apple \u00b7 ${MODES[r.mode].name}`;
+  const head = r.adv ? `\ud83c\udf4e The Apple \u00b7 Level ${r.adv} ${starStr(r.stars)}` : r.daily ? `\ud83c\udf4e The Apple \u00b7 Daily #${r.num}` : `\ud83c\udf4e The Apple \u00b7 ${MODES[r.mode].name}`;
   const text = [
     head,
-    `Level ${r.level} \u00b7 ${r.score.toLocaleString()} pts`,
+    r.adv ? `${r.score.toLocaleString()} pts` : `Level ${r.level} \u00b7 ${r.score.toLocaleString()} pts`,
     r.grades.map(x => GRADE_EMOJI[x]).join('') || '\u2014',
     `\ud83d\udc0d\ud83d\udca5 ${snakes} \u00b7 \u26a1 nerve \u00d7${(1 + 0.25 * r.nerve).toFixed(2).replace(/\.?0+$/, '')}`,
     'Can you beat it? mattlavergne.com/apple',
@@ -674,7 +809,24 @@ async function shareRun() {
 }
 
 // ------------------------------------------------------------------ wiring
-$('#btn-play').addEventListener('click', () => { audio.play('click'); startRun('normal'); });
+$('#btn-play').addEventListener('click', () => { audio.unlock(); audio.play('click'); openMap(); });
+$('#btn-endless').addEventListener('click', () => { audio.unlock(); audio.play('click'); returnTo = 'title'; renderTitle(); show('endless'); });
+$('#btn-endless-go').addEventListener('click', () => { audio.play('click'); startRun('normal'); });
+$('#map-back').addEventListener('click', () => { audio.play('click'); goTitle(); });
+$('#map-scroll').addEventListener('click', e => {
+  const b = e.target.closest('.node');
+  if (!b) return;
+  const n = +b.dataset.level;
+  if (n > save.adventure.unlocked) { audio.play('nope'); toast('Beat the level before it to unlock this one.'); return; }
+  audio.play('click');
+  openLevelCard(n);
+});
+$('#lc-play').addEventListener('click', () => { audio.play('click'); startRun('adventure'); });
+$('#lc-back').addEventListener('click', () => { audio.play('click'); show('map'); });
+$('#res-next').addEventListener('click', () => { audio.play('click'); openLevelCard(Math.min(ADVENTURE_LEVELS, advLevel + 1)); });
+$('#res-replay').addEventListener('click', () => { audio.play('click'); startRun('adventure'); });
+$('#res-map').addEventListener('click', () => { audio.play('click'); openMap(); });
+$('#res-share').addEventListener('click', () => shareRun());
 $('#btn-daily').addEventListener('click', () => { audio.play('click'); startRun('daily'); });
 $('#btn-share').addEventListener('click', () => shareRun());
 $('#contracts').addEventListener('click', e => {
@@ -710,10 +862,10 @@ $$('.tab').forEach(t => t.addEventListener('click', () => {
 $('#btn-pause').addEventListener('click', () => pause());
 $('#btn-resume').addEventListener('click', () => resume());
 $('#btn-restart').addEventListener('click', () => { startRun(); });
-$('#btn-quit').addEventListener('click', () => goTitle());
+$('#btn-quit').addEventListener('click', () => (runKind === 'adventure' ? openMap() : goTitle()));
 $('#btn-again').addEventListener('click', () => startRun());
 $('#btn-over-orchard').addEventListener('click', () => openOrchard('over'));
-$('#btn-over-menu').addEventListener('click', () => goTitle());
+$('#btn-over-menu').addEventListener('click', () => (runKind === 'adventure' ? openMap() : goTitle()));
 
 for (const id of ['#tgl-music', '#tgl-music2']) $(id).addEventListener('click', () => {
   audio.unlock();
@@ -744,7 +896,7 @@ window.addEventListener('keydown', e => {
   if (screen === 'perks' && ['Digit1', 'Digit2', 'Digit3'].includes(e.code)) {
     choosePerk(+e.code.slice(5) - 1);
   } else if (screen === 'title' && (e.code === 'Enter') && $('#screen-title').classList.contains('show')) {
-    startRun('normal');
+    openMap();
   }
 });
 // First interaction anywhere unlocks audio (browsers require a gesture).
