@@ -89,7 +89,7 @@
       <canvas id="logo-apple" width="180" height="180" aria-hidden="true"></canvas>
       <h1 class="logo">The <span>Apple</span></h1>
       <p class="tagline">It's Snake, but <em>you're</em> the apple.<br>Make the snake crash. Don't get eaten!</p>
-      <button id="btn-play" class="btn btn-big btn-red adv-btn"><span>&#9654; Adventure</span><small id="adv-sub">Level 1 of 100</small></button>
+      <button id="btn-play" class="btn btn-big btn-red adv-btn"><span>&#9654; Adventure</span><small id="adv-sub">Pick any level</small></button>
       <button id="btn-endless" class="btn btn-green endless-btn">&#8734; Endless</button>
       <button id="btn-daily" class="daily-card">
         <span class="daily-left"><b id="daily-title">Daily Run</b><small id="daily-sub">Same levels for everyone today</small></span>
@@ -105,6 +105,7 @@
         <span class="pill">&#9733; <strong id="title-stars">0</strong></span>
         <button class="toggle" id="tgl-music" aria-pressed="true">&#9835; Music</button>
         <button class="toggle" id="tgl-sfx" aria-pressed="true">&#128266; Sound</button>
+        <button class="toggle" id="btn-sync">&#9729;&#65039; Sync</button>
         <button class="toggle touch-only" data-controls>&#9757;&#65039; Swipe</button>
       </div>
     </div>
@@ -152,6 +153,35 @@
       <div id="orchard-upgrades" class="shop-grid"></div>
       <div id="orchard-skins" class="shop-grid skins hidden"></div>
       <button class="btn btn-blue" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- Cloud sync -->
+  <section id="screen-sync" class="screen">
+    <div class="panel narrow sync-panel">
+      <h2>&#9729;&#65039; Sync</h2>
+      <p class="lead">Keep the same progress on your phone, tablet and computer. No account or email, just a code.</p>
+      <div id="sync-off">
+        <button id="sync-enable" class="btn btn-big btn-green">Turn on sync</button>
+        <p class="sync-or">Already syncing on another device? Enter its code:</p>
+        <div class="code-row">
+          <input id="sync-input" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="16" aria-label="Sync code">
+          <button id="sync-link" class="btn btn-blue">Link</button>
+        </div>
+      </div>
+      <div id="sync-on" class="hidden">
+        <p class="sync-label">Your sync code</p>
+        <div class="sync-code" id="sync-code"></div>
+        <div id="sync-qr" class="sync-qr"></div>
+        <p class="sync-label">Scan it with your phone, or open the link or type the code on another device.</p>
+        <div class="row">
+          <button id="sync-copy" class="btn btn-blue">Copy link</button>
+          <button id="sync-now" class="btn btn-green">Sync now</button>
+        </div>
+        <div class="row small"><button id="sync-stop" class="toggle">Stop syncing on this device</button></div>
+      </div>
+      <p class="sync-status" id="sync-status" role="status"></p>
+      <div class="row"><button class="btn btn-blue" data-back>Back</button></div>
     </div>
   </section>
 

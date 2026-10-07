@@ -4,6 +4,7 @@ import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
 import { Input } from './input.js';
 import { load, store } from './save.js';
+import { newCode, formatCode, normalizeCode, pull, push, mergeSaves } from './sync.js';
 import { ADVENTURE_LEVELS, LEVELS_PER_WORLD, adventureLevel, objectiveText, OBJECTIVE_ICON } from './levels.js';
 import {
   WORLDS, MODES, UPGRADES, SKINS, TIPS, GENERIC_TIPS, CORE_UNLOCK_LEVEL, EVENTS, GRADE_COLORS,
@@ -23,6 +24,19 @@ save.daily = { day: '', best: null, attempts: 0, streak: 0, lastDay: '', ...(sav
 save.nemesis = save.nemesis || null;
 // Adventure progress: highest unlocked level, best stars (1-3) and score per level.
 save.adventure = { unlocked: 1, stars: {}, best: {}, ...(save.adventure || {}) };
+save.updatedAt = save.updatedAt || 0;
+// Stars are a tiny ledger (earned / spent per device) so two synced devices
+// add up instead of overwriting each other. save.stars is the derived balance.
+try {
+  save.device = localStorage.getItem('the-apple.device') || newCode().slice(0, 8);
+  localStorage.setItem('the-apple.device', save.device);
+} catch { save.device = save.device || newCode().slice(0, 8); }
+if (!save.ledger) save.ledger = { [save.device]: { e: save.stars || 0, s: 0 } };
+const myLedger = () => (save.ledger[save.device] ||= { e: 0, s: 0 });
+const starBalance = () => Object.values(save.ledger).reduce((t, l) => t + (l.e || 0) - (l.s || 0), 0);
+save.stars = starBalance();
+function earnStars(n) { myLedger().e += n; save.stars = starBalance(); save.stats.starsEarned += n; }
+function spendStars(n) { myLedger().s += n; save.stars = starBalance(); }
 let advLevel = 1;
 const totalAdvStars = () => Object.values(save.adventure.stars).reduce((a, b) => a + b, 0);
 // 3 stars: no bites. 2 stars: one bite. 1 star: cleared.
@@ -61,11 +75,108 @@ let runKind = 'normal';
 let screen = 'title';      // title | play | paused | perks | over
 let returnTo = 'title';    // where "Back" from help/orchard goes
 let saveTimer = null;
+// The timestamp only moves when progress really changes, so simply opening the
+// game never makes a stale device look newest during a sync merge.
+const progressSnapshot = () => { const { sync, updatedAt, device, ...rest } = save; return JSON.stringify(rest); };
+let lastSnapshot = progressSnapshot();
 const persist = (now = false) => {
+  const snap = progressSnapshot();
+  const changed = snap !== lastSnapshot;
+  if (changed) { lastSnapshot = snap; save.updatedAt = Date.now(); }
   clearTimeout(saveTimer);
   if (now) store(save);
   else saveTimer = setTimeout(() => store(save), 400);
+  if (changed) schedulePush();
 };
+
+// ------------------------------------------------------------------ cloud sync
+// save.sync = { code, lastSync } lives only on this device and is never uploaded.
+let pushTimer = null, syncing = false, syncMsg = '';
+const syncPayload = () => { const { sync, device, ...rest } = save; return rest; };
+function schedulePush() {
+  if (!save.sync?.code) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => syncNow(true), 4000);
+}
+async function syncNow(quiet = false) {
+  const code = save.sync?.code;
+  if (!code || syncing) return;
+  syncing = true;
+  setSyncStatus('Syncing\u2026');
+  try {
+    const remote = await pull(code);
+    if (remote) {
+      const merged = mergeSaves(syncPayload(), { ...remote.data, updatedAt: remote.updatedAt });
+      const keep = save.sync, device = save.device;
+      for (const k of Object.keys(save)) if (!(k in merged)) delete save[k];
+      Object.assign(save, merged, { sync: keep, device });
+      save.stars = starBalance();
+    }
+    if (!save.updatedAt) save.updatedAt = Date.now();
+    lastSnapshot = progressSnapshot();
+    await push(code, syncPayload(), save.updatedAt);
+    save.sync.lastSync = Date.now();
+    store(save);
+    setSyncStatus('\u2705 Synced just now');
+    if (screen === 'title') renderTitle();
+    if (!quiet) toast('\u2601\ufe0f Progress synced');
+  } catch (e) {
+    setSyncStatus('\u26a0\ufe0f ' + e.message);
+    if (!quiet) toast(e.message);
+  } finally {
+    syncing = false;
+  }
+}
+function setSyncStatus(msg) {
+  syncMsg = msg;
+  const el = document.getElementById('sync-status');
+  if (el) el.textContent = msg;
+}
+const syncLink = code => `${location.origin}${location.pathname}#sync=${code}`;
+
+let qrLib = null;
+function loadQr() {
+  if (qrLib) return qrLib;
+  qrLib = new Promise((resolve, reject) => {
+    const sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+    sc.onload = () => resolve(window.qrcode);
+    sc.onerror = reject;
+    document.head.appendChild(sc);
+  });
+  return qrLib;
+}
+
+function renderSync() {
+  const code = save.sync?.code;
+  $('#sync-off').classList.toggle('hidden', !!code);
+  $('#sync-on').classList.toggle('hidden', !code);
+  $('#btn-sync').setAttribute('aria-pressed', String(!!code));
+  if (code) {
+    $('#sync-code').textContent = formatCode(code);
+    const qrEl = $('#sync-qr');
+    qrEl.innerHTML = '';
+    loadQr().then(qrcode => {
+      const qr = qrcode(0, 'M');
+      qr.addData(syncLink(code));
+      qr.make();
+      qrEl.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+    }).catch(() => { qrEl.textContent = ''; });
+  }
+  const last = save.sync?.lastSync;
+  setSyncStatus(syncMsg || (last ? `Last synced ${new Date(last).toLocaleString()}` : ''));
+}
+function openSync(prefill) {
+  audio.unlock();
+  returnTo = 'title';
+  syncMsg = '';
+  renderSync();
+  if (prefill) {
+    $('#sync-input').value = formatCode(prefill);
+    setSyncStatus('Tap Link to combine this device\u2019s progress with that code.');
+  }
+  show('sync');
+}
 
 const game = new Game({
   sfx: name => audio.play(name),
@@ -193,7 +304,7 @@ function renderTitle() {
   $('#btn-daily').classList.toggle('done', !!d.best);
   renderContracts();
   const next = Math.min(ADVENTURE_LEVELS, save.adventure.unlocked);
-  $('#adv-sub').textContent = `Level ${next} \u00b7 \u2605 ${totalAdvStars()}/${ADVENTURE_LEVELS * 3}`;
+  $('#adv-sub').textContent = `${save.adventure.unlocked > 1 ? `Level ${next} \u00b7 ` : ''}Pick any level \u00b7 \u2605 ${totalAdvStars()}/${ADVENTURE_LEVELS * 3}`;
   const w = $('#wanted');
   w.classList.toggle('hidden', !save.nemesis);
   if (save.nemesis) {
@@ -328,8 +439,7 @@ function contractProgress(id, value, max = false) {
       it.progress = it.target;
       it.done = true;
       const reward = CONTRACT_REWARD[i];
-      save.stars += reward;
-      save.stats.starsEarned += reward;
+      earnStars(reward);
       const c = CONTRACTS.find(x => x.id === it.id);
       toast(`\u2705 Contract done: ${c.text(it.target)} +${reward}\u2605`);
       audio.play('grade');
@@ -338,8 +448,7 @@ function contractProgress(id, value, max = false) {
   }
   if (!cs.bonus && cs.items.every(it => it.done)) {
     cs.bonus = true;
-    save.stars += CONTRACT_BONUS;
-    save.stats.starsEarned += CONTRACT_BONUS;
+    earnStars(CONTRACT_BONUS);
     setTimeout(() => toast(`\ud83c\udf81 All 3 contracts done! +${CONTRACT_BONUS}\u2605 bonus`), 2400);
   }
   persist();
@@ -400,7 +509,7 @@ function renderOrchard() {
     btn.disabled = maxed || save.stars < cost;
     btn.addEventListener('click', () => {
       if (save.stars < cost || maxed) return;
-      save.stars -= cost;
+      spendStars(cost);
       save.upgrades[u.id] = lvl + 1;
       persist(true);
       audio.play('buy');
@@ -433,7 +542,7 @@ function renderOrchard() {
     btn.addEventListener('click', () => {
       if (!owned) {
         if (save.stars < s.cost) return;
-        save.stars -= s.cost;
+        spendStars(s.cost);
         save.skins.push(s.id);
         audio.play('buy');
       } else audio.play('click');
@@ -598,8 +707,7 @@ function onEvent(name, data, g) {
       hideBanner();
       break;
     case 'stars':
-      save.stars += data;
-      save.stats.starsEarned += data;
+      earnStars(data);
       persist();
       contractProgress('stars', data);
       break;
@@ -732,8 +840,7 @@ function showGameOver(g) {
       d.streak = d.lastDay === today(-1).key ? d.streak + 1 : 1;
       d.lastDay = t.key;
       reward = 20 + Math.min(30, d.streak * 5);
-      save.stars += reward;
-      save.stats.starsEarned += reward;
+      earnStars(reward);
     }
     dailyEl.textContent = `Daily #${t.num} \u00b7 \ud83d\udd25 ${d.streak}-day streak` + (reward ? ` \u00b7 +${reward}\u2605 daily reward` : ` \u00b7 best today ${d.best.score.toLocaleString()}`);
   } else if (g.adventure) {
@@ -829,6 +936,36 @@ $('#res-map').addEventListener('click', () => { audio.play('click'); openMap(); 
 $('#res-share').addEventListener('click', () => shareRun());
 $('#btn-daily').addEventListener('click', () => { audio.play('click'); startRun('daily'); });
 $('#btn-share').addEventListener('click', () => shareRun());
+$('#btn-sync').addEventListener('click', () => { audio.play('click'); openSync(); });
+$('#sync-enable').addEventListener('click', async () => {
+  audio.play('click');
+  save.sync = { code: newCode(), lastSync: 0 };
+  store(save);
+  renderSync();
+  await syncNow();
+  renderSync();
+});
+$('#sync-link').addEventListener('click', async () => {
+  const code = normalizeCode($('#sync-input').value);
+  if (!code) { audio.play('nope'); setSyncStatus('That doesn\u2019t look like a sync code (12 letters and numbers).'); return; }
+  audio.play('click');
+  save.sync = { code, lastSync: 0 };
+  store(save);
+  renderSync();
+  await syncNow();
+  renderSync();
+});
+$('#sync-now').addEventListener('click', async () => { audio.play('click'); await syncNow(); renderSync(); });
+$('#sync-copy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(syncLink(save.sync.code)); toast('Sync link copied!'); } catch { toast(formatCode(save.sync.code)); }
+});
+$('#sync-stop').addEventListener('click', () => {
+  // Progress stays on this device; it just stops talking to the cloud.
+  delete save.sync;
+  store(save);
+  syncMsg = 'Sync is off on this device. Your progress is still here.';
+  renderSync();
+});
 $('#contracts').addEventListener('click', e => {
   if (!e.target.closest('.c-head')) return;
   contractsOpen = !contractsOpen;
@@ -906,7 +1043,10 @@ window.addEventListener('keydown', () => audio.unlock(), { once: true });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { pause(); persist(true); }
 });
-window.addEventListener('pagehide', () => persist(true));
+window.addEventListener('pagehide', () => {
+  persist(true);
+  if (save.sync?.code) push(save.sync.code, syncPayload(), save.updatedAt, true).catch(() => {});
+});
 
 let resizeTimer = null;
 window.addEventListener('resize', () => {
@@ -954,4 +1094,14 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 syncToggles();
 renderer.resize();
 goTitle();
+// A sync link (…#sync=CODE) offers to link this device; otherwise sync on launch.
+{
+  const m = location.hash.match(/sync=([A-Za-z0-9-]+)/);
+  const code = m && normalizeCode(m[1]);
+  if (code) {
+    history.replaceState(null, '', location.pathname + location.search);
+    if (save.sync?.code !== code) openSync(code);
+  }
+  if (save.sync?.code) syncNow(true);
+}
 requestAnimationFrame(frame);
