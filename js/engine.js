@@ -3,6 +3,7 @@ import {
   WORLDS, worldIndexFor, levelParams, speciesFor, baseStats, UPGRADES, PERKS, MODES, eventFor,
   SPECIES, nemesisName, nemesisBounty,
 } from './config.js';
+import { buildLayout } from './levels.js';
 
 export const DIRS4 = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -51,11 +52,14 @@ export class Game {
   emit(name, data) { if (this.hooks.event) this.hooks.event(name, data, this); }
 
   // ---------------------------------------------------------------- run / level
-  newRun({ mode = 'classic', upgrades = {}, demo = false, cols = 25, rows = 17, level = 1, seed = null, nemesis = null } = {}) {
-    this.mode = mode;
+  newRun({ mode = 'classic', upgrades = {}, demo = false, cols = 25, rows = 17, level = 1, seed = null, daily = false, nemesis = null, adventure = null } = {}) {
+    this.mode = adventure ? 'classic' : mode;
     this.demo = demo;
-    this.seed = seed;
-    this.daily = seed != null;
+    this.daily = daily;
+    // Adventure levels have a fixed seed so everyone plays the same level.
+    this.adventure = adventure;
+    this.seed = adventure ? adventure.seed : seed;
+    if (adventure) { level = adventure.n; nemesis = null; }
     // Your nemesis ambushes you once per run, somewhere in levels 3-6.
     this.nemesis = nemesis && !demo && !this.daily ? { ...nemesis } : null;
     this.nemesisLevel = this.nemesis ? 3 + Math.floor(Math.random() * 4) : 0;
@@ -86,6 +90,10 @@ export class Game {
   // Close-call combo. Every near miss raises it; it fades after a few calm seconds.
   get nerveMult() { return 1 + 0.25 * this.nerve; }
 
+  // Difficulty tier used for scoring and snake instincts. In Adventure it is
+  // the level's difficulty, not its number (level 100 isn't 100x the points).
+  get L() { return this.adventure ? this.adventure.diff : this.level; }
+
   get rotUnlocked() { return this.demo || this.level >= 3 || this.mode === 'core'; }
   get starMult() { return (MODES[this.mode] || MODES.classic).starMult * this.stats.starBonus; }
 
@@ -93,10 +101,20 @@ export class Game {
     const { cols, rows } = this;
     lr = this.seed != null ? mulberry32(hash(this.seed, this.level)) : Math.random;
     this.perkRng = this.seed != null ? mulberry32(hash(this.seed, this.level, 77)) : Math.random;
-    this.params = { ...levelParams(this.level, this.mode) };
-    this.world = this.demo ? randi(0, WORLDS.length - 1) : worldIndexFor(this.level);
-    this.event = this.demo ? null : eventFor(this.level, lr);
+    const adv = this.adventure;
+    if (adv) {
+      this.params = { ...levelParams(adv.diff, 'classic'), snakeCount: adv.snakes, boss: adv.boss };
+      this.world = adv.world;
+      this.event = adv.event;
+    } else {
+      this.params = { ...levelParams(this.level, this.mode) };
+      this.world = this.demo ? randi(0, WORLDS.length - 1) : worldIndexFor(this.level);
+      this.event = this.demo ? null : eventFor(this.level, lr);
+    }
+    // What wins this level. Endless always means "crash every snake".
+    this.objective = adv ? { ...adv.objective, progress: 0 } : { type: 'crash', progress: 0 };
     this.applyEvent();
+    if (this.objective.type === 'stars') this.ev.luck *= 2.2;
     this.rocks = new Uint8Array(cols * rows);
     this.brambles = new Map();
     this.pickups = [];
@@ -150,7 +168,7 @@ export class Game {
     for (let i = 0; i < p.snakeCount; i++) {
       const sp = spots[i];
       const body = [0, 1, 2].map(k => ({ x: sp.x - sp.d.x * k, y: sp.y - sp.d.y * k }));
-      const species = speciesFor(this.level, i);
+      const species = adv && adv.boss && i === 1 ? SPECIES[4] : speciesFor(this.L, i);
       this.snakes.push({
         id: i, species, body, old: body.map(c => ({ ...c })), dir: { ...sp.d }, acc: 0,
         interval: p.step, grow: p.startLen - 3, dead: false, deadT: 0, gone: false, popped: 0,
@@ -172,7 +190,8 @@ export class Game {
       s.lungeCd = rand(0.5, 1.5);
     }
 
-    this.generateRocks();
+    if (adv) this.rocks = buildLayout(adv, cols, rows);
+    else this.generateRocks();
     this.updateGhost();
     this.state = this.demo ? 'play' : 'countdown';
     this.countT = 3;
@@ -482,7 +501,11 @@ export class Game {
 
     this.levelTime += dt;
     this.updateHunger(dt);
-    if (!this.demo) this.score += dt * 5 * this.level * this.nerveMult;
+    if (!this.demo) this.score += dt * 5 * this.L * this.nerveMult;
+    if (this.objective.type === 'survive') {
+      this.objective.progress = Math.min(this.objective.target, this.levelTime);
+      if (this.levelTime >= this.objective.target) { this.levelComplete('SURVIVED!'); return; }
+    }
     if (this.nerve > 0) {
       this.nerveT -= dt;
       if (this.nerveT <= 0) {
@@ -841,12 +864,25 @@ export class Game {
       const nx = h.x + d.x, ny = h.y + d.y;
       if (this.inB(nx, ny) && !blocked[this.idx(nx, ny)]) safe.push({ d, x: nx, y: ny });
     }
+    // A snake that just ate wriggles backwards out of a dead end rather than
+    // dying in it: getting eaten must never be what wins you a level.
+    if (!safe.length && this.time - (s.fedAt ?? -9) < 3 && !s.backingOut && s.body.length > 1) {
+      s.body.reverse();
+      s.old = s.body.map(c => ({ x: c.x, y: c.y }));
+      s.dir = { x: s.body[0].x - s.body[1].x, y: s.body[0].y - s.body[1].y };
+      s.fedAt = -9;
+      s.backingOut = true;
+      this.floater(s.body[0].x + 0.5, Math.max(0.8, s.body[0].y - 0.4), 'backs out\u2026', '#ffffff', 0.45);
+      const d = this.decide(s);
+      s.backingOut = false;
+      return d;
+    }
     s.doomed = !safe.length;
     if (s.doomed) return s.dir; // trapped: crash straight ahead
 
     // Instinct: never squeeze into a tiny dead end, not even for a bite. A
     // bramble fortress buys you time; it doesn't trap the snake for free.
-    const instinct = Math.min(s.body.length + s.grow, s.nemesis ? 99 : 2 + Math.floor(this.level / 2));
+    const instinct = Math.min(s.body.length + s.grow, s.nemesis ? 99 : 2 + Math.floor(this.L / 2));
     const roomy = safe.filter(o => this.flood(o.x, o.y, blocked, instinct) >= instinct);
     const opts = roomy.length ? roomy : safe;
 
@@ -955,13 +991,13 @@ export class Game {
     s.sickT = 0;
     s.grow = 0;
     // Wither over a few seconds (longer on later levels), whatever its length.
-    const sickFor = (5 + 0.4 * Math.min(this.level, 15)) * (s.nemesis ? 1 + 0.3 * s.nemesis.rank : 1);
+    const sickFor = (5 + 0.4 * Math.min(this.L, 15)) * (s.nemesis ? 1 + 0.3 * s.nemesis.rank : 1);
     s.witherEvery = sickFor / Math.max(1, s.body.length - 3);
     s.stun = 0.7;
     s.confused = 0.7;
     s.lunge = 'none';
     const h = s.body[0];
-    if (!this.demo) this.score += 100 * this.level * this.nerveMult;
+    if (!this.demo) this.score += 100 * this.L * this.nerveMult;
     this.floater(h.x + 0.5, Math.max(0.8, h.y), 'POISONED!', '#8e44ad', 0.9);
     this.shake = Math.max(this.shake, 0.4);
     this.sfx('poison');
@@ -1009,7 +1045,7 @@ export class Game {
       this.burst(c.x + 0.5, c.y + 0.5, { n: 5, colors: [s.species.body, s.species.belly], speed: 2, life: 0.4, size: 0.1 });
     }
     s.old = s.body.map(c => ({ x: c.x, y: c.y }));
-    if (!this.demo) this.score += 50 * this.level * this.nerveMult;
+    if (!this.demo) this.score += 50 * this.L * this.nerveMult;
     this.floater(nx + 0.5, ny, 'OUCH!', '#ffab40', 0.7);
     this.burst(s.body[0].x + 0.5, s.body[0].y + 0.2, { n: 6, colors: ['#fff59d', '#ffffff'], speed: 1.5, life: 0.6, size: 0.1, type: 'star' });
     this.shake = Math.max(this.shake, 0.3);
@@ -1027,7 +1063,7 @@ export class Game {
     this.nervePeak = Math.max(this.nervePeak, this.nerve);
     this.nerveBest = Math.max(this.nerveBest, this.nerve);
     this.closeCalls++;
-    this.score += 25 * this.level * this.nerveMult;
+    this.score += 25 * this.L * this.nerveMult;
     const rp = this.appleRenderPos();
     this.floater(rp.x + 0.5, rp.y - 0.3, lunging ? 'DODGED!' : 'CLOSE!', '#80deea', lunging ? 0.75 : 0.6, 0.8);
     this.burst(rp.x + 0.5, rp.y + 0.5, { n: 6, colors: ['#e0f7fa', '#80deea'], speed: 2.5, life: 0.35, size: 0.08, type: 'ring' });
@@ -1041,7 +1077,7 @@ export class Game {
     s.deadT = 0;
     s.cause = cause;
     s.lunge = 'none';
-    let pts = Math.round(250 * this.level * KILL_MULT[cause] * this.nerveMult * (s.golden ? 3 : 1));
+    let pts = Math.round(250 * this.L * KILL_MULT[cause] * this.nerveMult * (s.golden ? 3 : 1));
     let text = s.golden ? 'GOLDEN ' + KILL_TEXT[cause] : KILL_TEXT[cause];
     const double = this.time - this.lastKill < 2.5;
     if (double) { pts *= 2; text = 'DOUBLE KO!'; }
@@ -1070,26 +1106,35 @@ export class Game {
       this.emit('nemesis', { ...s.nemesis, bounty });
     }
     this.emit('kill', { cause, pts, lunging, double, golden: !!s.golden, nemesis: !!s.nemesis });
-    if (this.snakes.every(o => o.dead)) {
-      this.state = 'clear';
-      this.clearT = 2.4;
-      if (!this.demo) {
-        const g = this.gradeLevel();
-        this.grades.push(g);
-        this.lastGrade = g;
-        const stars = this.addStars(5 + this.level * 2 + GRADE_STARS[g]);
-        this.floater(this.cols / 2, this.rows / 2 - 1, 'LEVEL CLEAR!', '#ffeb3b', 1.4, 2.2);
-        this.floater(this.cols / 2, this.rows / 2 + 0.6, '+' + stars + ' ★', '#ffd54f', 0.9, 2.2);
-      }
-      this.sfx('win');
+    if (this.snakes.every(o => o.dead)) this.levelComplete('LEVEL CLEAR!');
+    else if (s.golden && this.objective.type === 'golden') this.levelComplete('GOLD!');
+  }
+
+  // Win the level: by crashing every snake, or by meeting the objective.
+  levelComplete(text) {
+    if (this.state !== 'play') return;
+    this.state = 'clear';
+    this.clearT = 2.4;
+    this.objective.done = true;
+    if (!this.demo) {
+      const g = this.gradeLevel();
+      this.grades.push(g);
+      this.lastGrade = g;
+      const stars = this.addStars(5 + this.L * 2 + GRADE_STARS[g]);
+      this.floater(this.cols / 2, this.rows / 2 - 1, text, '#ffeb3b', 1.4, 2.2);
+      this.floater(this.cols / 2, this.rows / 2 + 0.6, '+' + stars + ' ★', '#ffd54f', 0.9, 2.2);
     }
+    // Snakes that are still around freeze where they are.
+    for (const o of this.snakes) if (!o.dead) { o.stun = 99; o.confused = 1.5; }
+    this.sfx('win');
   }
 
   // S: no bites, fast, and brave. A: no bites. B: at most one bite. C: survived.
   gradeLevel() {
-    const par = 25 + this.level * 2.5 + this.params.snakeCount * 10;
-    const t = this.levelTime, b = this.levelBites;
-    this.par = par;
+    const par = 25 + this.L * 2.5 + this.params.snakeCount * 10;
+    // On survive levels the clock is the objective, so only bites and nerve count.
+    const t = this.objective.type === 'survive' ? 0 : this.levelTime, b = this.levelBites;
+    this.par = this.objective.type === 'survive' ? 0 : par;
     if (b === 0 && t <= par && this.nervePeak >= 4) return 'S';
     if (b === 0 && t <= par * 1.35) return 'A';
     if (b <= 1) return 'B';
@@ -1110,6 +1155,7 @@ export class Game {
         return;
       }
       this.poisonSnake(s);
+      s.fedAt = this.time;
       this.bounceApple(s);
       return;
     }
@@ -1126,6 +1172,7 @@ export class Game {
       this.floater(s.body[0].x + 0.5, Math.max(0.8, s.body[0].y - 0.6), 'CURED!', '#7cb342', 0.6);
     }
     s.grow += 3;
+    s.fedAt = this.time;
     s.chomp = 0.5;
     s.stun = 0.45;
     s.lunge = 'none';
@@ -1220,7 +1267,7 @@ export class Game {
     const a = this.apple;
     const r = lr();
     let type = 'star';
-    if (this.event === 'feast') type = r < 0.1 ? 'seed' : 'star';
+    if (this.event === 'feast' || this.objective.type === 'stars') type = r < 0.1 ? 'seed' : r < 0.14 && this.bites < this.stats.maxBites ? 'heart' : 'star';
     else if (r < 0.08 && this.bites < this.stats.maxBites) type = 'heart';
     else if (r < 0.3) type = 'seed';
     for (let tries = 0; tries < 60; tries++) {
@@ -1246,14 +1293,18 @@ export class Game {
     const cx = p.x + 0.5, cy = p.y + 0.5;
     if (p.type === 'star') {
       this.addStars(1);
-      if (!this.demo) this.score += 20 * this.level * this.nerveMult;
+      if (this.objective.type === 'stars' && !this.demo) {
+        this.objective.progress++;
+        if (this.objective.progress >= this.objective.target) this.levelComplete('STAR HARVEST!');
+      }
+      if (!this.demo) this.score += 20 * this.L * this.nerveMult;
       this.burst(cx, cy, { n: 10, colors: ['#ffeb3b', '#fff59d', '#ffffff'], speed: 2.5, life: 0.5, size: 0.1, type: 'star' });
       this.floater(cx, cy - 0.3, '+★', '#ffd54f', 0.55);
       this.sfx('star');
     } else if (p.type === 'seed') {
       const before = this.thorns;
       this.thorns = Math.min(this.stats.thornCap, this.thorns + 2);
-      if (!this.demo) this.score += 10 * this.level;
+      if (!this.demo) this.score += 10 * this.L;
       this.burst(cx, cy, { n: 8, colors: ['#8bc34a', '#c5e1a5', '#795548'], speed: 2, life: 0.5, size: 0.1, type: 'leaf' });
       this.floater(cx, cy - 0.3, this.thorns > before ? '+' + (this.thorns - before) + ' bramble' : 'full!', '#aed581', 0.5);
       this.sfx('seed');

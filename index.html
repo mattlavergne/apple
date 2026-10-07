@@ -38,6 +38,7 @@
         <div id="hud-bites" class="hud-bites" aria-label="Bites left"></div>
         <div class="hud-chips">
           <div id="hud-nerve" class="nerve" aria-live="polite"><b>NERVE</b> <span id="hud-nerve-x">&times;1</span><i id="hud-nerve-bar"></i></div>
+          <div id="hud-goal" class="goal-chip hidden"></div>
           <div id="hud-hunger" class="hunger" title="Snake hunger: they speed up the longer a level lasts"><b>HUNGER</b><i></i></div>
           <div id="hud-event" class="event-chip hidden"></div>
         </div>
@@ -88,8 +89,8 @@
       <canvas id="logo-apple" width="180" height="180" aria-hidden="true"></canvas>
       <h1 class="logo">The <span>Apple</span></h1>
       <p class="tagline">It's Snake, but <em>you're</em> the apple.<br>Make the snake crash. Don't get eaten!</p>
-      <div class="modes" id="modes" role="radiogroup" aria-label="Difficulty"></div>
-      <button id="btn-play" class="btn btn-big btn-red">Play</button>
+      <button id="btn-play" class="btn btn-big btn-red adv-btn"><span>&#9654; Adventure</span><small id="adv-sub">Level 1 of 100</small></button>
+      <button id="btn-endless" class="btn btn-green endless-btn">&#8734; Endless</button>
       <button id="btn-daily" class="daily-card">
         <span class="daily-left"><b id="daily-title">Daily Run</b><small id="daily-sub">Same levels for everyone today</small></span>
         <span class="daily-right"><span class="streak" id="daily-streak">&#128293; 0</span><small id="daily-best">No run yet</small></span>
@@ -102,7 +103,6 @@
       </div>
       <div class="row small">
         <span class="pill">&#9733; <strong id="title-stars">0</strong></span>
-        <span class="pill" id="title-best">Best: &mdash;</span>
         <button class="toggle" id="tgl-music" aria-pressed="true">&#9835; Music</button>
         <button class="toggle" id="tgl-sfx" aria-pressed="true">&#128266; Sound</button>
         <button class="toggle touch-only" data-controls>&#9757;&#65039; Swipe</button>
@@ -114,7 +114,7 @@
   <section id="screen-help" class="screen">
     <div class="panel">
       <h2>How to play</h2>
-      <p class="lead">You're the apple. The snakes are hungry. Lead them into <b>walls</b>, <b>rocks</b>, <b>brambles</b>, <b>each other</b> or <b>their own tails</b>. When every snake has crashed, you clear the level!</p>
+      <p class="lead">You're the apple. The snakes are hungry. Lead them into <b>walls</b>, <b>rocks</b>, <b>brambles</b>, <b>each other</b> or <b>their own tails</b>. In <b>Adventure</b>, each level has a goal (crash every snake, survive, collect stars, or crash the golden snake). Clear it without a bite for 3&#9733;!</p>
       <div class="help-grid">
         <div class="help-item"><span class="hi-icon">&#11014;&#65039;</span><div><b>Move</b><small>Arrow keys / WASD. On a phone or tablet, drag anywhere on the field.</small></div></div>
         <div class="help-item"><span class="hi-icon">&#128168;</span><div><b>Dash</b> <kbd>Space</kbd><small>Zip a few tiles forward. Great for escaping lunges.</small></div></div>
@@ -155,6 +155,61 @@
     </div>
   </section>
 
+  <!-- Endless mode chooser -->
+  <section id="screen-endless" class="screen">
+    <div class="panel">
+      <h2>&#8734; Endless</h2>
+      <p class="lead">One run, no end. Levels keep coming, power-ups stack, and your nemesis is out there somewhere.</p>
+      <div class="modes" id="modes" role="radiogroup" aria-label="Difficulty"></div>
+      <p><span class="pill" id="title-best">Best: &mdash;</span></p>
+      <button id="btn-endless-go" class="btn btn-big btn-red">Start</button>
+      <div class="row"><button class="btn btn-blue" data-back>Back</button></div>
+    </div>
+  </section>
+
+  <!-- Adventure map -->
+  <section id="screen-map" class="screen map-screen">
+    <div class="map-wrap">
+      <header class="map-head">
+        <button class="icon-btn" id="map-back" aria-label="Back">&#8592;</button>
+        <h2>Adventure</h2>
+        <span class="pill big">&#9733; <strong id="map-stars">0</strong>/300</span>
+      </header>
+      <div class="map-scroll" id="map-scroll"></div>
+    </div>
+  </section>
+
+  <!-- Level card -->
+  <section id="screen-level" class="screen">
+    <div class="panel narrow level-card">
+      <div class="lc-world" id="lc-world"></div>
+      <h2 id="lc-title">Level 1</h2>
+      <div class="lc-name" id="lc-name"></div>
+      <div class="lc-goal" id="lc-goal"></div>
+      <div class="lc-meta" id="lc-meta"></div>
+      <div class="lc-stars" id="lc-stars"></div>
+      <button id="lc-play" class="btn btn-big btn-red">Play</button>
+      <div class="row"><button class="btn btn-blue" id="lc-back">Back to map</button></div>
+    </div>
+  </section>
+
+  <!-- Adventure level result -->
+  <section id="screen-result" class="screen">
+    <div class="panel">
+      <div class="res-stars" id="res-stars"></div>
+      <h2 class="win-title" id="res-title">Level 1 complete!</h2>
+      <div class="grade-detail" id="res-detail"></div>
+      <div class="stats" id="res-stats"></div>
+      <div id="res-unlock" class="res-unlock hidden"></div>
+      <div class="row"><button id="res-next" class="btn btn-big btn-red">Next level &#9654;</button></div>
+      <div class="row">
+        <button id="res-replay" class="btn btn-green">&#8635; Replay</button>
+        <button id="res-map" class="btn btn-blue">Map</button>
+        <button id="res-share" class="btn btn-gold">&#128228; Share</button>
+      </div>
+    </div>
+  </section>
+
   <!-- Perk pick after a level -->
   <section id="screen-perks" class="screen">
     <div class="panel wide">
@@ -175,7 +230,7 @@
   <section id="screen-over" class="screen">
     <div class="panel">
       <canvas id="over-apple" width="140" height="140" aria-hidden="true"></canvas>
-      <h2>Crunch! You got eaten.</h2>
+      <h2 id="over-title">Crunch! You got eaten.</h2>
       <div class="stats" id="over-stats"></div>
       <div id="over-best" class="new-best hidden">&#127942; New best!</div>
       <div id="over-daily" class="over-daily hidden"></div>

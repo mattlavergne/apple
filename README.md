@@ -4,6 +4,14 @@
 
 Pure HTML/CSS/JS with no build step and no dependencies. All graphics are drawn on a canvas and all sounds are synthesized, so there are no image or audio files to load.
 
+## Modes
+
+- **Adventure** (the main mode): a Candy Crush-style map of **100 levels across 10 worlds** (Sunny Orchard, Sunset Meadow, Dusty Desert, Frosty Field, Moonlit Garden, Candy Kingdom, Autumn Woods, Seaside Dunes, Volcano Rim, Cloud Garden). Every 10th level is a boss. Each level has an **objective**: crash every snake, survive N seconds, collect N stars, or crash the golden snake (crashing every snake always wins too). Clear a level to unlock the next and earn **1–3 stars** (3 = no bites, 2 = one bite, 1 = cleared). Replay any unlocked level to improve.
+  - Levels are generated from the level number with a fixed seed (`js/levels.js`), so **every player gets the same level 16**. Layout styles (pillars, fence rows, rooms, a walled arena, crossroads, islands, zigzags, mirrored patterns…) get more structured in later worlds, and each level has its own wall positions and a seeded mirror flip. Layouts are built on a 25×17 landscape grid and rotated for portrait phones, so the map is identical, just turned.
+  - Difficulty is a gentle sawtooth: it dips at the start of each world, then climbs to the boss.
+- **Endless**: one run, no end, with power-ups between levels, your nemesis, and Sprout / Classic / Rotten Core modes.
+- **Daily Run**: the same seeded Endless run for everyone today.
+
 ## How it plays
 
 - **Move** with the Arrow keys or WASD. On touch screens, drag anywhere on the field.
@@ -78,6 +86,8 @@ Balance checks (headless bots, run per level):
 - `node tools/camper.mjs [trials] [reaction]`: "drop a bramble and wait behind it". It should only pay off on the first couple of levels.
 - `node tools/rotcamper.mjs [trials]`: "stand still and rot when the snake is close". It should almost never clear a level.
 - `node tools/rotkite.mjs [trials]`: rot at the right moment, then run until the snake withers. This is the skill play, and it should usually work but take a while.
+- `node tools/adventure.mjs [trials] [from] [to] [-v]`: plays every Adventure level (both orientations) and reports clear rates per world (`-v` for per-level detail).
+- `node tools/bitetrap.mjs`: regression test. A snake that eats you in a dead end must back out, never hand you the level.
 - `node tools/circler.mjs [trials]`: "run laps around the border". It should get bitten quickly.
 - `node tools/nemesis.mjs [trials] [level]`: how often the general bot beats a normal snake versus a nemesis of rank 1–5.
 
@@ -88,6 +98,7 @@ Balance checks (headless bots, run per level):
 | File | What it does |
 |---|---|
 | `js/config.js` | Worlds, snakes, difficulty curve, perks, upgrades, skins |
+| `js/levels.js` | The 100 Adventure levels: objectives, layout templates, deterministic generation |
 | `js/engine.js` | Simulation: movement, snake AI (greedy / BFS / flood-fill), abilities, pickups (no DOM) |
 | `js/render.js` | Canvas drawing: field, snakes, apple, particles |
 | `js/main.js` | Screens, HUD, game loop, save hooks |

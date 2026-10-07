@@ -32,6 +32,27 @@ export const WORLDS = [
     border: '#d94f8a', borderLight: '#ff86b7', obstacle: 'gumdrop',
     deco: ['#7ad7f0', '#ffe066', '#b892ff'], tuft: '#f5b0cf', bg: ['#fff0f7', '#ffc2dc'],
   },
+  {
+    name: 'Autumn Woods', grass: ['#d8b25c', '#cfa751'], edge: '#a8813b',
+    border: '#6b3a1f', borderLight: '#9a5a2e', obstacle: 'stump',
+    deco: ['#e85d2a', '#f2a541', '#b5482a'], tuft: '#b8903f', bg: ['#fde3c0', '#e9a466'],
+  },
+  {
+    name: 'Seaside Dunes', grass: ['#f5e6bf', '#eedcb0'], edge: '#d9c48f',
+    border: '#2f7fa8', borderLight: '#5fb2d9', obstacle: 'rock',
+    deco: ['#ff8a80', '#ffffff', '#80deea'], tuft: '#cdb67e', bg: ['#d9f3ff', '#86cdef'],
+  },
+  {
+    name: 'Volcano Rim', grass: ['#5a4741', '#52403b'], edge: '#3b2b27',
+    border: '#3a1d17', borderLight: '#7a2e1c', obstacle: 'rock',
+    deco: ['#ff7043', '#ffab40', '#ffd54f'], tuft: '#4a3a35', bg: ['#4a2a22', '#1e0f0c'],
+    dark: true,
+  },
+  {
+    name: 'Cloud Garden', grass: ['#eef2ff', '#e4eafd'], edge: '#c8d3f5',
+    border: '#8e9ad6', borderLight: '#b9c3f0', obstacle: 'gumdrop',
+    deco: ['#ffd6f0', '#c9f2ff', '#fff3b0'], tuft: '#ccd6f6', bg: ['#f6f4ff', '#c9d4ff'],
+  },
 ];
 
 export function worldIndexFor(level) {
