@@ -627,3 +627,23 @@ html, body { overscroll-behavior: none; }
 @keyframes star-pop { from { transform: scale(0) rotate(-40deg); opacity: 0; } }
 .res-unlock { margin: 6px 0; font-weight: 700; color: var(--green-d); }
 .grade-detail span { white-space: nowrap; }
+
+/* ================================================================ v5: sync */
+.sync-panel .lead { margin-bottom: 16px; }
+.sync-or { margin: 14px 0 6px; font-size: 0.95rem; }
+.code-row { display: flex; gap: 8px; justify-content: center; }
+.code-row input {
+  width: 13em; padding: 8px 12px; font: 600 1.1rem/1 var(--font); letter-spacing: 0.12em; text-transform: uppercase;
+  border: 3px solid var(--ink); border-radius: 12px; text-align: center; background: #fff; color: var(--ink);
+  -webkit-user-select: text; user-select: text;
+}
+.sync-label { margin: 6px 0; font-size: 0.85rem; opacity: 0.75; }
+.sync-code {
+  display: inline-block; white-space: nowrap; font-size: clamp(1.15rem, 5.5vw, 1.5rem); font-weight: 700; letter-spacing: 0.12em;
+  padding: 6px 16px; border: 3px dashed var(--ink); border-radius: 14px; background: #fffde7;
+  -webkit-user-select: all; user-select: all;
+}
+.sync-qr { width: 150px; height: 150px; margin: 10px auto 0; }
+.sync-qr:empty { display: none; }
+.sync-qr svg { width: 100%; height: 100%; display: block; }
+.sync-status { min-height: 1.2em; font-size: 0.9rem; font-weight: 600; margin: 10px 0 0; }

@@ -12,6 +12,12 @@ Pure HTML/CSS/JS with no build step and no dependencies. All graphics are drawn 
 - **Endless**: one run, no end, with power-ups between levels, your nemesis, and Sprout / Classic / Rotten Core modes.
 - **Daily Run**: the same seeded Endless run for everyone today.
 
+## Cloud sync
+
+Progress can follow you between devices with no account: **Sync** on the title screen makes a random 12-character code (shown as text, a link and a QR code). Open the link, scan the code or type it on another device to link it. Saves are stored by the homepage Worker in [`mattlavergne/landing-page`](https://github.com/mattlavergne/landing-page) (`src/apple-api.js`, a Cloudflare D1 table) at `mattlavergne.com/apple/api`. No personal data is stored.
+
+Merging never loses progress: unlocked levels, best stars and scores, upgrades, skins and lifetime stats take the best of both devices. The star balance is a per-device ledger of stars earned and spent, so balances from two devices add up instead of overwriting each other. Choices (equipped skin, settings, nemesis) come from whichever device changed most recently. The client is `js/sync.js`; it syncs on launch, a few seconds after progress changes, and when the page closes.
+
 ## How it plays
 
 - **Move** with the Arrow keys or WASD. On touch screens, drag anywhere on the field.
@@ -57,7 +63,7 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 
 - **Swipe** (default on touch screens): swipe to roll, swipe again to turn (even mid-drag), tap to stop. The apple also stops when it bumps into something. A hold-to-steer **joystick** is available in the menu.
 - Haptics on bites, crashes, close calls and quakes (Android; iOS browsers don't expose vibration).
-- Installable as an app with offline play (`manifest.webmanifest` + `sw.js`). The service worker serves from cache and refreshes in the background, so an update shows on the *second* launch after a push.
+- Installable as an app with offline play (`manifest.webmanifest` + `sw.js`). The service worker is network-first: you always get the latest version when online, and the cached copy only when offline.
 
 ## Hosting
 
@@ -98,6 +104,7 @@ Balance checks (headless bots, run per level):
 | File | What it does |
 |---|---|
 | `js/config.js` | Worlds, snakes, difficulty curve, perks, upgrades, skins |
+| `js/sync.js` | Cloud sync client and save merging |
 | `js/levels.js` | The 100 Adventure levels: objectives, layout templates, deterministic generation |
 | `js/engine.js` | Simulation: movement, snake AI (greedy / BFS / flood-fill), abilities, pickups (no DOM) |
 | `js/render.js` | Canvas drawing: field, snakes, apple, particles |
