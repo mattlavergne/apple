@@ -486,7 +486,7 @@ export class Game {
       for (const d of DIRS4) if (free(a.x + d.x, a.y + d.y)) { cell = { x: a.x + d.x, y: a.y + d.y }; break; }
     }
     if (!cell) return false;
-    this.brambles.set(this.idx(cell.x, cell.y), { x: cell.x, y: cell.y, age: 0, life: this.stats.thornLife * this.ev.thornLife, seed: Math.random() });
+    this.brambles.set(this.idx(cell.x, cell.y), { x: cell.x, y: cell.y, age: 0, born: this.time, life: this.stats.thornLife * this.ev.thornLife, seed: Math.random() });
     this.thorns--;
     this.burst(cell.x + 0.5, cell.y + 0.5, { n: 8, colors: ['#5a8f29', '#8bc34a', '#6d4c2f'], speed: 2, life: 0.5, size: 0.1, type: 'leaf' });
     this.sfx('thorn');
@@ -596,7 +596,7 @@ export class Game {
         else if (s.lunge === 'none' && p.lunge && s.lungeCd <= 0 && !this.decoy && s.stun <= 0) {
           const dist = manhattan(s.body[0], this.apple);
           if (dist >= 2 && dist <= 4 && this.apple.invuln <= 0) {
-            s.lunge = 'windup'; s.lungeT = 0.5; this.sfx('hiss');
+            s.lunge = 'windup'; s.lungeT = 0.5; s.lungeAt = this.time; this.sfx('hiss');
           }
         }
       }
@@ -620,7 +620,15 @@ export class Game {
 
   planGrid(s) {
     const g = Uint8Array.from(this.rocks);
-    if (this.params.seesThorns) for (const k of this.brambles.keys()) g[k] = 1;
+    // Fresh brambles go unnoticed for a moment: they only catch a snake that is
+    // already right on your tail. Older ones are walls the snake steers around.
+    // A lunging snake planned its strike: it sees every bramble that was there
+    // when its "!" appeared, and only thorns dropped in reply can catch it.
+    const react = this.params.thornReact;
+    const lunging = s.lunge === 'windup' || s.lunge === 'go';
+    for (const [k, b] of this.brambles) {
+      if (lunging ? b.born <= s.lungeAt : b.age >= react) g[k] = 1;
+    }
     for (const o of this.snakes) {
       if (o.gone) continue;
       const len = o.body.length - (o === s && o.grow === 0 ? 1 : 0);
@@ -675,11 +683,18 @@ export class Game {
       const nx = h.x + d.x, ny = h.y + d.y;
       if (this.inB(nx, ny) && !blocked[this.idx(nx, ny)]) safe.push({ d, x: nx, y: ny });
     }
-    if (!safe.length) return s.dir; // doomed: crash straight ahead
+    s.doomed = !safe.length;
+    if (s.doomed) return s.dir; // trapped: crash straight ahead
+
+    // Instinct: never squeeze into a tiny dead end, not even for a bite. A
+    // bramble fortress buys you time; it doesn't trap the snake for free.
+    const instinct = Math.min(s.body.length + s.grow, 2 + Math.floor(this.level / 2));
+    const roomy = safe.filter(o => this.flood(o.x, o.y, blocked, instinct) >= instinct);
+    const opts = roomy.length ? roomy : safe;
 
     const maxArea = (prefer) => {
       let best = null, bestScore = -Infinity;
-      for (const o of safe) {
+      for (const o of opts) {
         const area = this.flood(o.x, o.y, blocked, 400);
         const tie = prefer ? -manhattan(o, prefer) * 0.01 : (o.d.x === s.dir.x && o.d.y === s.dir.y ? 0.5 : 0);
         const score = area + tie + Math.random() * 0.1;
@@ -691,13 +706,13 @@ export class Game {
     if (!target) return maxArea(null);
 
     if (p.ai === 'greedy') {
-      if (Math.random() < 0.1) return pick(safe).d;
-      safe.sort((a, b) => manhattan(a, target) - manhattan(b, target) + (Math.random() - 0.5) * 0.5);
-      return safe[0].d;
+      if (Math.random() < 0.1) return pick(opts).d;
+      opts.sort((a, b) => manhattan(a, target) - manhattan(b, target) + (Math.random() - 0.5) * 0.5);
+      return opts[0].d;
     }
 
     const fi = this.bfsFirst(h, target, blocked);
-    let choice = fi >= 0 ? safe.find(o => o.d === DIRS4[fi]) : null;
+    let choice = fi >= 0 ? opts.find(o => o.d === DIRS4[fi]) : null;
     if (choice && Math.random() < p.smart) {
       const need = s.body.length + s.grow + 2;
       if (this.flood(choice.x, choice.y, blocked, need) < need) choice = null;
@@ -732,6 +747,9 @@ export class Game {
         const k = this.idx(nx, ny);
         this.brambles.delete(k);
         this.burst(nx + 0.5, ny + 0.5, { n: 14, colors: ['#5a8f29', '#8bc34a', '#6d4c2f'], speed: 3, life: 0.7, size: 0.12, type: 'leaf' });
+        // Thorns kill a lunging snake, a trapped one, or any snake on the first
+        // levels. Otherwise the snake just gets a nasty scratch.
+        if (s.lunge !== 'go' && !s.doomed && !this.params.thornsKill) { this.scratchSnake(s, nx, ny); return; }
       }
       this.killSnake(s, cause, nx, ny);
       return;
@@ -769,6 +787,24 @@ export class Game {
         this.burst(nx + 0.5, ny + 0.5, { n: 6, colors: ['#ffffff', '#dddddd'], speed: 1.5, life: 0.4, size: 0.1 });
       }
     }
+  }
+
+  scratchSnake(s, nx, ny) {
+    s.stun = 1.1;
+    s.confused = 1.1;
+    s.lunge = 'none';
+    // Lose a couple of tail segments, never below a stub of 3.
+    for (let i = 0; i < 2 && s.body.length > 3; i++) {
+      const c = s.body.pop();
+      this.burst(c.x + 0.5, c.y + 0.5, { n: 5, colors: [s.species.body, s.species.belly], speed: 2, life: 0.4, size: 0.1 });
+    }
+    s.old = s.body.map(c => ({ x: c.x, y: c.y }));
+    if (!this.demo) this.score += 50 * this.level * this.nerveMult;
+    this.floater(nx + 0.5, ny, 'OUCH!', '#ffab40', 0.7);
+    this.burst(s.body[0].x + 0.5, s.body[0].y + 0.2, { n: 6, colors: ['#fff59d', '#ffffff'], speed: 1.5, life: 0.6, size: 0.1, type: 'star' });
+    this.shake = Math.max(this.shake, 0.3);
+    this.sfx('thorn');
+    this.emit('scratch');
   }
 
   closeCall(s) {

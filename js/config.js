@@ -65,7 +65,11 @@ export function levelParams(level, mode) {
     growEvery: Math.max(1.1, 2.6 - 0.09 * (L - 1)) * m.growMult,
     ai: eff <= 2 ? 'greedy' : 'bfs',
     smart: eff >= 6 ? Math.min(0.95, (eff - 5) * 0.14) : 0,
-    seesThorns: eff >= 4,
+    // Seconds before a fresh bramble is noticed. ~3 snake steps at level 1,
+    // ~1.5 by level 10.
+    thornReact: Math.max(0.22, 0.72 - 0.055 * (eff - 1)) * (mode === 'sprout' ? 1.35 : 1),
+    // Early levels (before snakes learn to lunge) let thorns kill outright.
+    thornsKill: eff <= 2 || (mode === 'sprout' && L < 6),
     lunge: eff >= 3 && !(mode === 'sprout' && L < 6),
     lungeCd: Math.max(2.4, 6.5 - 0.25 * L),
     lungeSteps: 4 + Math.floor(L / 6),
@@ -84,9 +88,9 @@ export function speciesFor(level, i) {
 
 export const TIPS = {
   1: 'Move with the Arrow keys or WASD. Lead the snake into a wall, a rock, or its own tail!',
-  2: 'Drop a bramble behind you (E). Young snakes can’t see brambles. Ouch! And slipping right past a snake’s nose builds NERVE, which multiplies your score.',
-  3: 'NEW: Hidden Rot (Q)! Go secretly rotten. If a snake bites you while you’re rotten, it’s POISONED. But watch out: snakes now LUNGE when they’re close. Dash with Space!',
-  4: 'Snakes can see brambles now. Use them to build walls and box the snake in.',
+  2: 'Drop a bramble behind you (E) while a snake chases you. It needs a moment to spot fresh thorns, so if it\u2019s right on your tail: OUCH! Slipping right past a snake\u2019s nose builds NERVE, which multiplies your score.',
+  3: 'Snakes now LUNGE (watch for the red “!”). A lunging snake can’t dodge fresh thorns, but a normal one just gets scratched. NEW: Hidden Rot (Q) poisons any snake that bites you.',
+  4: 'Snakes spot brambles faster as they grow up, and they won\u2019t follow you into a dead end. Use thorns to build walls and box them in.',
   5: 'BOSS LEVEL! King Cobra Carl brought a friend. Get them to crash into each other!',
   6: 'Snakes are getting clever. They try to avoid dead ends now, so you’ll need real traps.',
   10: 'Older snakes can SNIFF rot sometimes. Go rotten at the very last second!',

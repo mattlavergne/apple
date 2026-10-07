@@ -8,7 +8,7 @@ Pure HTML/CSS/JS with no build step and no dependencies. All graphics are drawn 
 
 - **Move** with the Arrow keys or WASD. On touch screens, drag anywhere on the field.
 - **Dash** (`Space`): zip a few tiles forward.
-- **Bramble** (`E`): drop a thorn bush behind you. Snakes that hit it are out.
+- **Bramble** (`E`): drop a thorn bush behind you. Snakes take a moment to notice fresh thorns (they shimmer until spotted). A chasing snake that runs into fresh thorns gets scratched: stunned, dizzy and shorter. A **lunging** snake that hits thorns you dropped after its "!" is out. Old thorns are walls for building traps, and a trapped snake forced into them is out too. On levels 1–2 (and early Sprout levels) thorns always kill.
 - **Hidden Rot** (`Q`, from level 3): secretly rot for a few seconds. A snake that bites you is poisoned. Older snakes can sometimes *sniff* the rot, so timing matters.
 - **Decoy** (`R`): a shiny fake apple. Unlock it in the Orchard, or get it as a perk.
 - **Pause** with `P` or `Esc`.
@@ -17,10 +17,11 @@ Snakes grow every few seconds, so time is on your side, but they also get smarte
 
 | Levels | Snake brain |
 |---|---|
-| 1–2 | Greedy: heads straight for you and can't see brambles |
+| All | Won't squeeze into a tiny dead end, not even to bite you (the safe pocket size grows with level) |
+| 1–2 | Greedy: heads straight for you. Thorns kill on contact |
 | 3+ | Pathfinding, plus a telegraphed **lunge** (watch for the red "!") |
-| 4+ | Can see brambles |
-| 6+ | Avoids dead ends more and more often |
+| 1–10 | Notices fresh thorns faster each level (about 3 snake steps at level 1, about 1.5 by level 10) |
+| 6+ | Checks it won't trap itself more and more often |
 | 10+ | Can sometimes sniff hidden rot |
 
 Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, there's always more than one snake. The world theme changes every 5 levels: Orchard, Meadow, Desert, Frost, Moonlit Garden and Candy Kingdom.
@@ -65,6 +66,8 @@ python3 -m http.server 8000
 ```
 
 Add `?debug` to the URL to expose `window.__game` (e.g. `__game.level = 15; __game.startLevel()`).
+
+`node tools/camper.mjs [trials] [reaction]` checks the "drop a bramble and wait behind it" exploit level by level; it should only pay off on the first couple of levels.
 
 `node tools/sim.mjs [runs] [mode] [dailySeed]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
 

@@ -403,6 +403,9 @@ function onEvent(name, data, g) {
     case 'quake':
       buzz([120, 40, 60]);
       break;
+    case 'scratch':
+      buzz(30);
+      break;
     case 'bump':
       // In swipe mode the apple rolls until it hits something, then waits.
       if (input.touchMode === 'swipe' && input.joy) input.joy = null;

@@ -464,7 +464,7 @@ export class Renderer {
     this.toCells(ctx, sx, sy);
     const t = g.time;
 
-    for (const b of g.brambles.values()) this.drawBramble(ctx, b, t);
+    for (const b of g.brambles.values()) this.drawBramble(ctx, b, t, g.params.thornReact);
     for (const p of g.pickups) this.drawPickup(ctx, p, t);
     if (g.decoy) this.drawDecoy(ctx, g.decoy, skin, t);
     if (g.ghost) this.drawGhost(ctx, g, skin, t);
@@ -484,7 +484,7 @@ export class Renderer {
     this.drawOverlayText(ctx, g);
   }
 
-  drawBramble(ctx, b, t) {
+  drawBramble(ctx, b, t, react = 0) {
     const grow = easeOutBack(clamp01(b.age / 0.3));
     const left = b.life - b.age;
     const wither = left < 2 ? left / 2 : 1;
@@ -516,6 +516,19 @@ export class Renderer {
     ctx.beginPath(); ctx.arc(-0.08, -0.18, 0.08, 0, TAU); ctx.fill();
     ctx.fillStyle = '#e53950';
     for (const [x, y] of [[0.12, -0.05], [-0.1, 0.12], [0.05, 0.2]]) { ctx.beginPath(); ctx.arc(x, y, 0.055, 0, TAU); ctx.fill(); }
+    // Fresh thorns that snakes haven't noticed yet shimmer, fading as they're spotted.
+    if (b.age < react) {
+      const k = 1 - b.age / react;
+      ctx.strokeStyle = `rgba(255,255,255,${0.85 * k})`;
+      ctx.lineWidth = 0.06;
+      ctx.beginPath(); ctx.arc(0, 0, 0.42 + (1 - k) * 0.15, 0, TAU); ctx.stroke();
+      ctx.fillStyle = `rgba(255,255,255,${k})`;
+      for (let i = 0; i < 3; i++) {
+        const a = t * 5 + i * 2.1;
+        starPath(ctx, Math.cos(a) * 0.38, Math.sin(a) * 0.38, 0.08, 0.35, 4);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 
