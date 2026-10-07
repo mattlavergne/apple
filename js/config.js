@@ -80,6 +80,8 @@ export function levelParams(level, mode) {
     // so waiting it out stops being safe. Sprout stays gentle.
     hungerRate: (0.011 + 0.0006 * Math.min(L, 20)) * (mode === 'sprout' ? 0.5 : mode === 'core' ? 1.3 : 1),
     hungerCap: mode === 'sprout' ? 1.45 : 1.9,
+    // How often a snake aims where you're going instead of where you are.
+    intercept: eff >= 4 ? Math.min(0.9, 0.35 + 0.08 * (eff - 4)) : 0,
     rockClusters: Math.min(9, 1 + Math.floor(L / 2)),
   };
 }
@@ -95,7 +97,7 @@ export const TIPS = {
   1: 'Move with the Arrow keys or WASD (or swipe). Lead the snake into a wall, a rock, or its own tail. Don’t dawdle: snakes get HUNGRY and faster the longer a level lasts!',
   2: 'Drop a bramble behind you (E) while a snake chases you. It needs a moment to spot fresh thorns, so if it\u2019s right on your tail: OUCH! Slipping right past a snake\u2019s nose builds NERVE, which multiplies your score.',
   3: 'Snakes now LUNGE (watch for the red “!”): a lunging snake can’t dodge fresh thorns. NEW: Hidden Rot (Q)! A snake that bites you while you’re rotten gets SICK and withers away, unless it bites a fresh apple first. Run!',
-  4: 'Snakes spot brambles faster as they grow up, and they won\u2019t follow you into a dead end. Use thorns to build walls and box them in.',
+  4: 'Snakes now aim where you’re GOING, not where you are. Running laps gets you cut off: fake one way, then cut back.',
   5: 'BOSS LEVEL! King Cobra Carl brought a friend. Get them to crash into each other!',
   6: 'Snakes are getting clever. They try to avoid dead ends now, so you’ll need real traps.',
   10: 'Snakes smell rot faster now. Go rotten at the very last second, or bait a lunge: lunging snakes can’t smell a thing.',
@@ -110,6 +112,9 @@ export const GENERIC_TIPS = [
   'Corners are dangerous for you AND the snake.',
   'Drop a bramble right after a sharp turn. Snakes can’t stop!',
   'Hearts heal one bite.',
+  'When the edge starts to flash, the hedge is coming. Lure a snake along it: HEDGED!',
+  'Clever snakes aim where you’re going. Fake one way, then cut back.',
+  'Two snakes hunt as a team: one chases, the other cuts you off.',
   'Getting bitten calms a hungry snake down a little. Small comfort.',
   'The snake that ends your run becomes your NEMESIS. Beat it for its bounty!',
   'Check the title screen for today’s contracts. They change every day.',
@@ -215,7 +220,7 @@ export const CONTRACTS = [
   { id: 'close', tier: 0, icon: '⚡', n: [15, 25], text: n => `Make ${n} close calls` },
   { id: 'stars', tier: 0, icon: '⭐', n: [30, 50], text: n => `Collect ${n} stars` },
   { id: 'level', tier: 0, icon: '🏁', n: [5, 6], text: n => `Reach level ${n} in one run` },
-  { id: 'walls', tier: 0, icon: '🧱', n: [3, 5], text: n => `Bonk ${n} snakes into walls or rocks` },
+  { id: 'walls', tier: 0, icon: '🧱', n: [3, 5], text: n => `Bonk ${n} snakes into walls, rocks or hedges` },
   { id: 'scratch', tier: 0, icon: '🌿', n: [3, 5], text: n => `Scratch ${n} snakes with fresh thorns` },
   { id: 'nerve', tier: 1, icon: '🔥', n: [8, 10], text: n => `Reach Nerve ×${1 + 0.25 * n}` },
   { id: 'poison', tier: 1, icon: '🦠', n: [2, 3], text: n => `Wither ${n} snakes with Hidden Rot` },

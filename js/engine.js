@@ -30,9 +30,9 @@ const lrandi = (a, b) => Math.floor(lrand(a, b + 1));
 const lpick = arr => arr[Math.floor(lr() * arr.length)];
 
 const KILL_TEXT = {
-  wall: 'BONK!', rock: 'BONK!', self: 'KNOTTED!', tangle: 'TANGLED!', thorns: 'THORNED!', poison: 'POISONED!',
+  wall: 'BONK!', rock: 'BONK!', hedge: 'HEDGED!', self: 'KNOTTED!', tangle: 'TANGLED!', thorns: 'THORNED!', poison: 'POISONED!',
 };
-const KILL_MULT = { wall: 1, rock: 1, self: 1, tangle: 1.5, thorns: 1.5, poison: 2 };
+const KILL_MULT = { wall: 1, rock: 1, hedge: 1.5, self: 1, tangle: 1.5, thorns: 1.5, poison: 2 };
 export const GRADE_STARS = { S: 15, A: 8, B: 3, C: 0 };
 
 export class Game {
@@ -75,7 +75,7 @@ export class Game {
     this.starsRun = 0;
     this.starFrac = 0;
     this.bites = s.maxBites;
-    this.kills = { wall: 0, rock: 0, self: 0, tangle: 0, thorns: 0, poison: 0 };
+    this.kills = { wall: 0, rock: 0, hedge: 0, self: 0, tangle: 0, thorns: 0, poison: 0 };
     this.lastKill = -10;
     this.closeCalls = 0;
     this.nerveBest = 0;
@@ -114,6 +114,9 @@ export class Game {
     this.hungerT = 0;
     this.hunger = 1;
     this.hungerStage = 0;
+    this.ring = 0;        // how many outer rings have overgrown into hedge
+    this.ringNext = 0;
+    this.ringWarnT = 0;
     this.quakeT = 6;
     this.rockVersion = 0;
     this.ghost = this.event === 'mirror' ? { x: 0, y: 0, down: 0, hidden: false } : null;
@@ -192,8 +195,80 @@ export class Game {
       }
       this.sfx(stage === 2 ? 'frenzy' : 'hiss');
       this.emit('hunger', stage);
+      if (stage > this.ring && stage > this.ringNext) {
+        // The orchard overgrows from the outside in: no more safe laps round the edge.
+        this.ringNext = stage;
+        this.ringWarnT = 3;
+        this.floater(cx, cy - 0.9, 'The hedges are closing in!', '#a5d6a7', 0.6, 2.2);
+        this.emit('hedgeWarn');
+      }
     }
     this.hungerStage = stage;
+  }
+
+  edgeDist(x, y) { return Math.min(x, y, this.cols - 1 - x, this.rows - 1 - y); }
+
+  closeRings(n) {
+    let closed = 0;
+    for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
+      const e = this.edgeDist(x, y);
+      if (e < this.ring || e >= n) continue;
+      const k = this.idx(x, y);
+      if (this.rocks[k]) continue;
+      this.rocks[k] = 2; // 2 = hedge
+      this.brambles.delete(k);
+      if (Math.random() < 0.35) this.burst(x + 0.5, y + 0.5, { n: 3, colors: ['#2e7d32', '#66bb6a', '#795548'], speed: 1.5, life: 0.6, size: 0.1, type: 'leaf' });
+      closed++;
+    }
+    this.ring = n;
+    this.pickups = this.pickups.filter(p => !this.rocks[this.idx(Math.round(p.x), Math.round(p.y))]);
+    if (this.decoy && this.rocks[this.idx(this.decoy.x, this.decoy.y)]) this.decoy = null;
+    this.rockVersion++;
+    this.shake = Math.max(this.shake, 0.5);
+    this.sfx('quake');
+    this.emit('hedge', n);
+    // Shove the apple inward if the hedge grew over it, or out of a sealed pocket.
+    const a = this.apple;
+    const g = this.appleBlockGrid();
+    if (this.rocks[this.idx(a.x, a.y)] || this.flood(a.x, a.y, g, 12) < 12) {
+      let best = null, bd = Infinity;
+      for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
+        if (g[this.idx(x, y)] || this.flood(x, y, g, 12) < 12) continue;
+        const d = Math.abs(x - a.x) + Math.abs(y - a.y);
+        if (d < bd) { bd = d; best = { x, y }; }
+      }
+      if (best) {
+        const rp = this.appleRenderPos();
+        a.fromX = rp.x; a.fromY = rp.y; a.x = best.x; a.y = best.y;
+        a.animT = 0; a.animDur = 0.18; a.squash = 1.2; a.prev = null;
+        a.invuln = Math.max(a.invuln, 0.5);
+      }
+    }
+    return closed;
+  }
+
+  // Smarter snakes aim where you're heading, not where you are. With two or
+  // more snakes, every other one flanks while the first chases.
+  interceptTarget(s) {
+    const a = this.apple, h = s.body[0];
+    const d = manhattan(h, a);
+    if (d <= 2 || this.time - (a.lastMoveAt ?? -9) > 0.45) return a;
+    if (this.time > (s.planUntil || 0)) {
+      const live = this.snakes.filter(o => !o.dead);
+      const flank = live.length > 1 && live.indexOf(s) % 2 === 1;
+      s.intercepting = this.params.intercept > 0 && (flank || Math.random() < this.params.intercept);
+      s.planUntil = this.time + 1.2 + Math.random();
+    }
+    if (!s.intercepting) return a;
+    const lead = Math.min(5, Math.ceil(d / 2));
+    let x = a.x + a.facing.x * lead, y = a.y + a.facing.y * lead;
+    x = Math.max(0, Math.min(this.cols - 1, x));
+    y = Math.max(0, Math.min(this.rows - 1, y));
+    // Back off toward the apple until the cell is open.
+    while ((x !== a.x || y !== a.y) && (this.rocks[this.idx(x, y)] || this.snakeAt(x, y))) {
+      x -= Math.sign(x - a.x); y -= Math.sign(y - a.y);
+    }
+    return { x, y };
   }
 
   // Level events tweak the rules for one level so no two levels play the same.
@@ -222,7 +297,7 @@ export class Game {
   quake() {
     const { cols } = this;
     const rocks = [];
-    for (let k = 0; k < this.rocks.length; k++) if (this.rocks[k]) rocks.push(k);
+    for (let k = 0; k < this.rocks.length; k++) if (this.rocks[k] === 1) rocks.push(k);
     let moved = 0;
     for (let n = 0; n < 4 && rocks.length; n++) {
       const k = rocks.splice(Math.floor(lr() * rocks.length), 1)[0];
@@ -417,6 +492,10 @@ export class Game {
         this.emit('nerve', 0);
       }
     }
+    if (this.ringWarnT > 0) {
+      this.ringWarnT -= dt;
+      if (this.ringWarnT <= 0) this.closeRings(this.ringNext);
+    }
     if (this.event === 'quake') {
       this.quakeT -= dt;
       if (this.quakeT <= 0) { this.quakeT = 6; this.quake(); }
@@ -478,6 +557,7 @@ export class Game {
     a.fromX = rp.x; a.fromY = rp.y;
     a.prev = { x: a.x, y: a.y };
     a.x = nx; a.y = ny;
+    a.lastMoveAt = this.time;
     a.animT = 0;
     a.animDur = this.stats.appleStep * this.appleStepMul() * 0.95;
     a.squash = 1;
@@ -507,6 +587,7 @@ export class Game {
     a.prev = { x: x - d.x, y: y - d.y };
     a.x = x; a.y = y;
     a.animT = 0; a.animDur = 0.09; a.squash = 1.4; a.dashFx = 1;
+    a.lastMoveAt = this.time;
     a.invuln = Math.max(a.invuln, 0.15);
     a.dashCd = this.stats.dashCd;
     a.moveT = Math.min(a.moveT, 0.05);
@@ -669,7 +750,7 @@ export class Game {
       }
       return null;
     }
-    return a;
+    return this.interceptTarget(s);
   }
 
   // Rot is only hidden for a moment: a snake within 3 tiles smells rot that has
@@ -691,6 +772,14 @@ export class Game {
     const g = Uint8Array.from(this.rocks);
     // Fresh brambles go unnoticed for a moment: they only catch a snake that is
     // already right on your tail. Older ones are walls the snake steers around.
+    // From level 4 snakes heed the flashing warning and steer off a ring
+    // that's about to overgrow, so a hedge crush has to be set up.
+    if (this.ringWarnT > 0 && this.params.intercept > 0) {
+      for (let y = 0; y < this.rows; y++) for (let x = 0; x < this.cols; x++) {
+        const e = this.edgeDist(x, y);
+        if (e >= this.ring && e < this.ringNext) g[this.idx(x, y)] = 1;
+      }
+    }
     // A lunging snake planned its strike: it sees every bramble that was there
     // when its "!" appeared, and only thorns dropped in reply can catch it.
     const react = this.params.thornReact * (s.nemesis ? Math.max(0.4, 1 - 0.12 * s.nemesis.rank) : 1);
@@ -793,7 +882,7 @@ export class Game {
   collide(s, nx, ny) {
     if (!this.inB(nx, ny)) return 'wall';
     const k = this.idx(nx, ny);
-    if (this.rocks[k]) return 'rock';
+    if (this.rocks[k]) return this.rocks[k] === 2 ? 'hedge' : 'rock';
     if (this.brambles.has(k)) return 'thorns';
     for (const o of this.snakes) {
       if (o.gone) continue;

@@ -531,7 +531,7 @@ html, body { overscroll-behavior: none; }
 .banner-foe small { font-weight: 400; font-size: 0.8rem; opacity: 0.85; }
 
 @media (max-width: 640px) {
-  .hunger { font-size: 0.6rem; min-width: 52px; padding: 0 6px; }
+  .hunger { font-size: 0.6rem; min-width: 64px; padding: 0 6px; }
   .contract { font-size: 0.78rem; }
   #logo-apple { width: 84px; height: 84px; }
 }

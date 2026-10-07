@@ -13,7 +13,11 @@ Pure HTML/CSS/JS with no build step and no dependencies. All graphics are drawn 
 - **Decoy** (`R`): a shiny fake apple. Unlock it in the Orchard, or get it as a perk.
 - **Pause** with `P` or `Esc`.
 
-Snakes grow every few seconds and get **hungrier** the longer a level lasts: they speed up (HUNGRY at 1.3×, FRENZY at 1.6×, up to 1.9×), the music speeds up with them, and by FRENZY they're faster than you. Waiting it out isn't a strategy; setting traps is. Getting bitten calms them down a little. Sprout mode ramps at half speed and caps at 1.45×. Snakes also get smarter as you go:
+Snakes grow every few seconds and get **hungrier** the longer a level lasts: they speed up (HUNGRY at 1.3×, FRENZY at 1.6×, up to 1.9×), the music speeds up with them, and by FRENZY they're faster than you. Getting bitten calms them down a little. Sprout mode ramps at half speed and caps at 1.45×.
+
+**The hedges close in.** At HUNGRY the outermost ring of the field flashes for 3 seconds, then overgrows into a solid thorn hedge; at FRENZY the next ring does too, so the arena shrinks as the pace rises. Running laps around the edge stops working. Any snake caught on a closing ring is **HEDGED!** (1.5× points). From level 4 snakes heed the warning and steer off the ring, so a hedge crush has to be set up. You can't leave the field: walking into the edge just bumps.
+
+Snakes also get smarter as you go:
 
 | Levels | Snake brain |
 |---|---|
@@ -21,6 +25,7 @@ Snakes grow every few seconds and get **hungrier** the longer a level lasts: the
 | 1–2 | Greedy: heads straight for you. Thorns kill on contact |
 | 3+ | Pathfinding, plus a telegraphed **lunge** (watch for the red "!") |
 | 1–10 | Notices fresh thorns faster each level (about 3 snake steps at level 1, about 1.5 by level 10) |
+| 4+ | **Intercepts:** often aims where you're heading instead of where you are; with two or more snakes, one chases while the other flanks |
 | 6+ | Checks it won't trap itself more and more often |
 | 3+ | Smells active rot within 3 tiles, faster each level |
 
@@ -73,6 +78,7 @@ Balance checks (headless bots, run per level):
 - `node tools/camper.mjs [trials] [reaction]`: "drop a bramble and wait behind it". It should only pay off on the first couple of levels.
 - `node tools/rotcamper.mjs [trials]`: "stand still and rot when the snake is close". It should almost never clear a level.
 - `node tools/rotkite.mjs [trials]`: rot at the right moment, then run until the snake withers. This is the skill play, and it should usually work but take a while.
+- `node tools/circler.mjs [trials]`: "run laps around the border". It should get bitten quickly.
 - `node tools/nemesis.mjs [trials] [level]`: how often the general bot beats a normal snake versus a nemesis of rank 1–5.
 
 `node tools/sim.mjs [runs] [mode] [dailySeed]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
