@@ -30,6 +30,19 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 - After each level you pick 1 of 3 power-ups for the current run.
 - There are three modes: **Sprout** (relaxed, good for kids), **Classic**, and **Rotten Core**, which unlocks once you reach level 10 in Classic.
 
+## Competitive depth
+
+- **Nerve:** slipping right past a snake's nose (a *close call*) builds a combo that multiplies every point you earn, up to ×6. A lunging snake that just misses counts double, and big moments trigger a beat of slow motion. Playing safe lets it cool off, so careful players can survive while brave players chase the high scores.
+- **Grades:** every cleared level is graded S/A/B/C on speed, bites taken and peak Nerve, with bonus stars for good grades.
+- **Level events:** from level 3, most non-boss levels roll a twist: Star Shower, Thick Fog, Golden Snake, Earthquake, Mirror Twin, Hungry Hour, Tailwind or Bramble Bloom.
+- **Daily Run:** one seeded run per day. Everyone gets the same layouts, events and power-up offers, and Orchard upgrades are switched off so it's fair. Your first Daily each day pays streak-boosted stars, and the result can be shared as an emoji card.
+
+## Phones
+
+- **Swipe** (default on touch screens): swipe to roll, swipe again to turn (even mid-drag), tap to stop. The apple also stops when it bumps into something. A hold-to-steer **joystick** is available in the menu.
+- Haptics on bites, crashes, close calls and quakes (Android; iOS browsers don't expose vibration).
+- Installable as an app with offline play (`manifest.webmanifest` + `sw.js`). The service worker serves from cache and refreshes in the background, so an update shows on the *second* launch after a push.
+
 ## Hosting
 
 The game is a static site on **GitHub Pages**, at `https://mattlavergne.github.io/apple/`.
@@ -53,7 +66,7 @@ python3 -m http.server 8000
 
 Add `?debug` to the URL to expose `window.__game` (e.g. `__game.level = 15; __game.startLevel()`).
 
-`node tools/sim.mjs [runs] [mode]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
+`node tools/sim.mjs [runs] [mode] [dailySeed]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
 
 ## Code map
 

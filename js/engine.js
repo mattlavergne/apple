@@ -1,6 +1,6 @@
 // Game simulation. No DOM access here, so it can also run headless (see tools/sim.mjs).
 import {
-  WORLDS, worldIndexFor, levelParams, speciesFor, baseStats, UPGRADES, PERKS, MODES,
+  WORLDS, worldIndexFor, levelParams, speciesFor, baseStats, UPGRADES, PERKS, MODES, eventFor,
 } from './config.js';
 
 export const DIRS4 = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
@@ -10,10 +10,29 @@ const manhattan = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 const easeOut = t => 1 - (1 - t) * (1 - t);
 
+export function mulberry32(a) {
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const hash = (...xs) => xs.reduce((h, x) => Math.imul(h ^ (x | 0), 2654435761) >>> 0, 0x9e3779b9);
+
+// "Level" randomness: board layout, events, pickups and perk offers. In a Daily
+// Run it is seeded, so every player gets the same days. Moment-to-moment noise
+// (particles, snake jitter) stays on Math.random.
+let lr = Math.random;
+const lrand = (a, b) => a + lr() * (b - a);
+const lrandi = (a, b) => Math.floor(lrand(a, b + 1));
+const lpick = arr => arr[Math.floor(lr() * arr.length)];
+
 const KILL_TEXT = {
   wall: 'BONK!', rock: 'BONK!', self: 'KNOTTED!', tangle: 'TANGLED!', thorns: 'THORNED!', poison: 'POISONED!',
 };
 const KILL_MULT = { wall: 1, rock: 1, self: 1, tangle: 1.5, thorns: 1.5, poison: 2 };
+export const GRADE_STARS = { S: 15, A: 8, B: 3, C: 0 };
 
 export class Game {
   constructor(hooks = {}) {
@@ -31,9 +50,11 @@ export class Game {
   emit(name, data) { if (this.hooks.event) this.hooks.event(name, data, this); }
 
   // ---------------------------------------------------------------- run / level
-  newRun({ mode = 'classic', upgrades = {}, demo = false, cols = 25, rows = 17, level = 1 } = {}) {
+  newRun({ mode = 'classic', upgrades = {}, demo = false, cols = 25, rows = 17, level = 1, seed = null } = {}) {
     this.mode = mode;
     this.demo = demo;
+    this.seed = seed;
+    this.daily = seed != null;
     this.cols = cols;
     this.rows = rows;
     const s = baseStats(mode);
@@ -50,16 +71,26 @@ export class Game {
     this.bites = s.maxBites;
     this.kills = { wall: 0, rock: 0, self: 0, tangle: 0, thorns: 0, poison: 0 };
     this.lastKill = -10;
+    this.closeCalls = 0;
+    this.nerveBest = 0;
+    this.grades = [];
     this.startLevel();
   }
+
+  // Close-call combo. Every near miss raises it; it fades after a few calm seconds.
+  get nerveMult() { return 1 + 0.25 * this.nerve; }
 
   get rotUnlocked() { return this.demo || this.level >= 3 || this.mode === 'core'; }
   get starMult() { return (MODES[this.mode] || MODES.classic).starMult * this.stats.starBonus; }
 
   startLevel() {
     const { cols, rows } = this;
-    this.params = levelParams(this.level, this.mode);
+    lr = this.seed != null ? mulberry32(hash(this.seed, this.level)) : Math.random;
+    this.perkRng = this.seed != null ? mulberry32(hash(this.seed, this.level, 77)) : Math.random;
+    this.params = { ...levelParams(this.level, this.mode) };
     this.world = this.demo ? randi(0, WORLDS.length - 1) : worldIndexFor(this.level);
+    this.event = this.demo ? null : eventFor(this.level, lr);
+    this.applyEvent();
     this.rocks = new Uint8Array(cols * rows);
     this.brambles = new Map();
     this.pickups = [];
@@ -68,12 +99,20 @@ export class Game {
     this.decoy = null;
     this.shake = 0;
     this.growT = 0;
-    this.pickT = rand(2, 4);
+    this.pickT = lrand(2, 4);
+    this.nerve = 0;
+    this.nerveT = 0;
+    this.nervePeak = 0;
+    this.slow = 0;
+    this.levelBites = 0;
+    this.quakeT = 6;
+    this.rockVersion = 0;
+    this.ghost = this.event === 'mirror' ? { x: 0, y: 0, down: 0, hidden: false } : null;
     this.thorns = this.stats.thornCap;
     this.thornRegenT = 0;
     this.levelTime = 0;
     this.clearT = 0;
-    this.levelSeed = Math.random() * 1e9;
+    this.levelSeed = lr() * 1e9;
 
     const cx = Math.floor(cols / 2), cy = Math.floor(rows / 2);
     this.apple = {
@@ -90,7 +129,7 @@ export class Game {
       { x: 2, y: rows - 3, d: { x: 0, y: -1 } },
     ];
     for (let i = spots.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
+      const j = Math.floor(lr() * (i + 1));
       [spots[i], spots[j]] = [spots[j], spots[i]];
     }
     const p = this.params;
@@ -108,11 +147,68 @@ export class Game {
       });
     }
 
+    if (this.event === 'golden') this.snakes[lrandi(0, this.snakes.length - 1)].golden = true;
+
     this.generateRocks();
+    this.updateGhost();
     this.state = this.demo ? 'play' : 'countdown';
     this.countT = 3;
     this.lastCount = 99;
     this.emit('level');
+  }
+
+  // Level events tweak the rules for one level so no two levels play the same.
+  applyEvent() {
+    const p = this.params;
+    this.ev = { appleStep: 1, luck: 1, thornRegen: 1, thornLife: 1 };
+    switch (this.event) {
+      case 'hungry': p.growEvery *= 0.5; p.step *= 1.12; break;
+      case 'tailwind': p.step *= 0.88; this.ev.appleStep = 0.78; break;
+      case 'bloom': this.ev.thornRegen = 0.2; this.ev.thornLife = 0.55; break;
+      case 'feast': this.ev.luck = 3.2; break;
+    }
+  }
+
+  // The mirror twin copies the apple across the vertical centre line.
+  updateGhost() {
+    const g = this.ghost;
+    if (!g) return;
+    g.x = this.cols - 1 - this.apple.x;
+    g.y = this.apple.y;
+    const k = this.idx(g.x, g.y);
+    g.hidden = g.down > 0 || !!this.rocks[k] || this.brambles.has(k) || !!this.snakeAt(g.x, g.y)
+      || (g.x === this.apple.x && g.y === this.apple.y);
+  }
+
+  quake() {
+    const { cols } = this;
+    const rocks = [];
+    for (let k = 0; k < this.rocks.length; k++) if (this.rocks[k]) rocks.push(k);
+    let moved = 0;
+    for (let n = 0; n < 4 && rocks.length; n++) {
+      const k = rocks.splice(Math.floor(lr() * rocks.length), 1)[0];
+      const x = k % cols, y = (k - x) / cols;
+      const d = lpick(DIRS4);
+      const nx = x + d.x, ny = y + d.y;
+      if (!this.appleCanEnter(nx, ny) || (nx === this.apple.x && ny === this.apple.y)) continue;
+      if (this.pickups.some(p => Math.round(p.x) === nx && Math.round(p.y) === ny)) continue;
+      this.rocks[k] = 0;
+      this.rocks[this.idx(nx, ny)] = 1;
+      // Never wall the apple in.
+      const g = this.appleBlockGrid();
+      const open = g.reduce((c, v) => c + (v ? 0 : 1), 0);
+      if (this.flood(this.apple.x, this.apple.y, g, Infinity) < open * 0.8) {
+        this.rocks[k] = 1; this.rocks[this.idx(nx, ny)] = 0; continue;
+      }
+      moved++;
+      this.burst(nx + 0.5, ny + 0.5, { n: 8, colors: ['#9e9e9e', '#bdbdbd', '#795548'], speed: 2, life: 0.5, size: 0.1 });
+    }
+    if (moved) {
+      this.rockVersion++;
+      this.shake = Math.max(this.shake, 0.7);
+      this.sfx('quake');
+      this.emit('quake');
+    }
   }
 
   generateRocks() {
@@ -131,11 +227,11 @@ export class Game {
     for (let attempt = 0; attempt < 40; attempt++) {
       this.rocks.fill(0);
       for (let c = 0; c < this.params.rockClusters; c++) {
-        let x = randi(1, cols - 2), y = randi(1, rows - 2);
-        const size = randi(1, 4);
+        let x = lrandi(1, cols - 2), y = lrandi(1, rows - 2);
+        const size = lrandi(1, 4);
         for (let k = 0; k < size; k++) {
           if (this.inB(x, y) && !reserved[y * cols + x]) this.rocks[y * cols + x] = 1;
-          const d = pick(DIRS4);
+          const d = lpick(DIRS4);
           x += d.x; y += d.y;
         }
       }
@@ -149,7 +245,7 @@ export class Game {
   perkChoices(n = 3) {
     const pool = PERKS.filter(p => (this.perks[p.id] || 0) < p.max && (!p.when || p.when(this.stats)));
     const out = [];
-    while (out.length < n && pool.length) out.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    while (out.length < n && pool.length) out.push(pool.splice(Math.floor(this.perkRng() * pool.length), 1)[0]);
     return out;
   }
 
@@ -232,6 +328,10 @@ export class Game {
 
   // ---------------------------------------------------------------- update
   update(dt, input) {
+    if (this.slow > 0 && this.state === 'play') {
+      this.slow -= dt;
+      dt *= 0.35;
+    }
     this.time += dt;
     this.updateFx(dt);
     if (this.state === 'paused' || this.state === 'idle') return;
@@ -267,7 +367,22 @@ export class Game {
     if (this.state !== 'play') return;
 
     this.levelTime += dt;
-    if (!this.demo) this.score += dt * 5 * this.level;
+    if (!this.demo) this.score += dt * 5 * this.level * this.nerveMult;
+    if (this.nerve > 0) {
+      this.nerveT -= dt;
+      if (this.nerveT <= 0) {
+        const rp = this.appleRenderPos();
+        this.floater(rp.x + 0.5, rp.y - 0.2, 'nerve cooled', '#b3e5fc', 0.45);
+        this.nerve = 0;
+        this.emit('nerve', 0);
+      }
+    }
+    if (this.event === 'quake') {
+      this.quakeT -= dt;
+      if (this.quakeT <= 0) { this.quakeT = 6; this.quake(); }
+    }
+    if (this.ghost && this.ghost.down > 0) this.ghost.down -= dt;
+    this.updateGhost();
     this.updateApple(dt, input);
     if (this.state !== 'play') return;
     this.updateSnakes(dt);
@@ -292,7 +407,7 @@ export class Game {
     a.decoyCd = Math.max(0, a.decoyCd - dt);
     if (this.thorns < st.thornCap) {
       this.thornRegenT += dt;
-      if (this.thornRegenT >= st.thornRegen) { this.thornRegenT = 0; this.thorns++; }
+      if (this.thornRegenT >= st.thornRegen * this.ev.thornRegen) { this.thornRegenT = 0; this.thorns++; }
     } else this.thornRegenT = 0;
 
     if (this.demo) input = this.demoInput(dt);
@@ -304,9 +419,10 @@ export class Game {
       const d = input.taps.shift() || input.held;
       if (d) {
         a.facing = { x: d.x, y: d.y };
-        if (this.tryMove(d)) a.moveT = st.appleStep;
+        if (this.tryMove(d)) a.moveT = st.appleStep * this.ev.appleStep;
         else {
           if (a.bump <= 0.01) this.sfx('bump');
+          this.emit('bump');
           a.bump = 1; a.bumpDir = { ...d }; a.moveT = 0.09;
         }
       }
@@ -323,7 +439,7 @@ export class Game {
     a.prev = { x: a.x, y: a.y };
     a.x = nx; a.y = ny;
     a.animT = 0;
-    a.animDur = this.stats.appleStep * 0.95;
+    a.animDur = this.stats.appleStep * this.ev.appleStep * 0.95;
     a.squash = 1;
     return true;
   }
@@ -370,7 +486,7 @@ export class Game {
       for (const d of DIRS4) if (free(a.x + d.x, a.y + d.y)) { cell = { x: a.x + d.x, y: a.y + d.y }; break; }
     }
     if (!cell) return false;
-    this.brambles.set(this.idx(cell.x, cell.y), { x: cell.x, y: cell.y, age: 0, life: this.stats.thornLife, seed: Math.random() });
+    this.brambles.set(this.idx(cell.x, cell.y), { x: cell.x, y: cell.y, age: 0, life: this.stats.thornLife * this.ev.thornLife, seed: Math.random() });
     this.thorns--;
     this.burst(cell.x + 0.5, cell.y + 0.5, { n: 8, colors: ['#5a8f29', '#8bc34a', '#6d4c2f'], speed: 2, life: 0.5, size: 0.1, type: 'leaf' });
     this.sfx('thorn');
@@ -490,6 +606,8 @@ export class Game {
   snakeTarget(s) {
     if (this.decoy) return this.decoy;
     const a = this.apple;
+    const g = this.ghost;
+    if (g && !g.hidden && manhattan(s.body[0], g) < manhattan(s.body[0], a)) return g;
     if (a.rot > 0 && s.sniffed && manhattan(s.body[0], a) <= 3) {
       if (!s.sniffShown) {
         s.sniffShown = true;
@@ -635,6 +753,15 @@ export class Game {
       this.sfx('decoyPop');
       return;
     }
+    const g = this.ghost;
+    if (g && !g.hidden && nx === g.x && ny === g.y) {
+      this.burst(nx + 0.5, ny + 0.5, { n: 16, colors: ['#e1f5fe', '#ffffff', '#b39ddb'], speed: 3, life: 0.6, size: 0.12 });
+      this.floater(nx + 0.5, ny, 'just a reflection!', '#b39ddb', 0.5);
+      g.down = 4;
+      s.stun = 0.9; s.confused = 0.9;
+      this.sfx('decoyPop');
+    }
+    if (manhattan(s.body[0], a) === 1 && a.invuln <= 0 && !a.dying) this.closeCall(s);
     for (let i = this.pickups.length - 1; i >= 0; i--) {
       const pk = this.pickups[i];
       if (Math.round(pk.x) === nx && Math.round(pk.y) === ny) {
@@ -644,13 +771,31 @@ export class Game {
     }
   }
 
+  closeCall(s) {
+    if (this.demo || this.state !== 'play') return;
+    if (this.time - (s.nearAt || -9) < 0.45) return;
+    s.nearAt = this.time;
+    const lunging = s.lunge === 'go';
+    this.nerve = Math.min(20, this.nerve + (lunging ? 2 : 1));
+    this.nerveT = 4;
+    this.nervePeak = Math.max(this.nervePeak, this.nerve);
+    this.nerveBest = Math.max(this.nerveBest, this.nerve);
+    this.closeCalls++;
+    this.score += 25 * this.level * this.nerveMult;
+    const rp = this.appleRenderPos();
+    this.floater(rp.x + 0.5, rp.y - 0.3, lunging ? 'DODGED!' : 'CLOSE!', '#80deea', lunging ? 0.75 : 0.6, 0.8);
+    this.burst(rp.x + 0.5, rp.y + 0.5, { n: 6, colors: ['#e0f7fa', '#80deea'], speed: 2.5, life: 0.35, size: 0.08, type: 'ring' });
+    if (this.nerve === 1 || lunging || this.nerve % 5 === 0) this.slow = 0.25;
+    this.emit('nerve', this.nerve);
+  }
+
   killSnake(s, cause, nx, ny) {
     s.dead = true;
     s.deadT = 0;
     s.cause = cause;
     s.lunge = 'none';
-    let pts = Math.round(250 * this.level * KILL_MULT[cause]);
-    let text = KILL_TEXT[cause];
+    let pts = Math.round(250 * this.level * KILL_MULT[cause] * this.nerveMult * (s.golden ? 3 : 1));
+    let text = s.golden ? 'GOLDEN ' + KILL_TEXT[cause] : KILL_TEXT[cause];
     if (this.time - this.lastKill < 2.5) { pts *= 2; text = 'DOUBLE KO!'; }
     this.lastKill = this.time;
     if (!this.demo) {
@@ -663,17 +808,35 @@ export class Game {
     this.burst(hx + 0.5, hy + 0.5, { n: 18, colors: ['#ffeb3b', '#ffffff', '#ff9800'], speed: 4, life: 0.7, size: 0.14, type: 'star' });
     this.shake = Math.max(this.shake, 0.6);
     this.sfx(cause === 'poison' ? 'poison' : 'crash');
+    if (s.golden && !this.demo) {
+      this.addStars(10);
+      this.burst(hx + 0.5, hy + 0.5, { n: 30, colors: ['#ffd700', '#fff59d', '#ffffff'], speed: 5, life: 1, size: 0.14, type: 'star' });
+    }
     this.emit('kill', { cause, pts });
     if (this.snakes.every(o => o.dead)) {
       this.state = 'clear';
       this.clearT = 2.4;
       if (!this.demo) {
-        const stars = this.addStars(5 + this.level * 2);
+        const g = this.gradeLevel();
+        this.grades.push(g);
+        this.lastGrade = g;
+        const stars = this.addStars(5 + this.level * 2 + GRADE_STARS[g]);
         this.floater(this.cols / 2, this.rows / 2 - 1, 'LEVEL CLEAR!', '#ffeb3b', 1.4, 2.2);
         this.floater(this.cols / 2, this.rows / 2 + 0.6, '+' + stars + ' ★', '#ffd54f', 0.9, 2.2);
       }
       this.sfx('win');
     }
+  }
+
+  // S: no bites, fast, and brave. A: no bites. B: at most one bite. C: survived.
+  gradeLevel() {
+    const par = 25 + this.level * 2.5 + this.params.snakeCount * 10;
+    const t = this.levelTime, b = this.levelBites;
+    this.par = par;
+    if (b === 0 && t <= par && this.nervePeak >= 4) return 'S';
+    if (b === 0 && t <= par * 1.35) return 'A';
+    if (b <= 1) return 'B';
+    return 'C';
   }
 
   biteApple(s) {
@@ -689,6 +852,8 @@ export class Game {
       return;
     }
     this.bites--;
+    this.levelBites++;
+    if (this.nerve > 0) { this.nerve = 0; this.emit('nerve', 0); }
     if (this.demo) this.bites = Math.max(1, this.bites);
     s.grow += 3;
     s.chomp = 0.5;
@@ -752,10 +917,10 @@ export class Game {
   }
 
   updatePickups(dt) {
-    this.pickT -= dt * this.stats.luck;
+    this.pickT -= dt * this.stats.luck * this.ev.luck;
     if (this.pickT <= 0) {
-      this.pickT = rand(3.5, 6);
-      if (this.pickups.length < 4) this.spawnPickup();
+      this.pickT = lrand(3.5, 6);
+      if (this.pickups.length < (this.event === 'feast' ? 8 : 4)) this.spawnPickup();
     }
     const a = this.apple;
     const rp = this.appleRenderPos();
@@ -782,12 +947,13 @@ export class Game {
 
   spawnPickup() {
     const a = this.apple;
-    const r = Math.random();
+    const r = lr();
     let type = 'star';
-    if (r < 0.08 && this.bites < this.stats.maxBites) type = 'heart';
+    if (this.event === 'feast') type = r < 0.1 ? 'seed' : 'star';
+    else if (r < 0.08 && this.bites < this.stats.maxBites) type = 'heart';
     else if (r < 0.3) type = 'seed';
     for (let tries = 0; tries < 60; tries++) {
-      const x = randi(0, this.cols - 1), y = randi(0, this.rows - 1);
+      const x = lrandi(0, this.cols - 1), y = lrandi(0, this.rows - 1);
       if (!this.appleCanEnter(x, y) || manhattan({ x, y }, a) < 3) continue;
       if (this.pickups.some(p => Math.round(p.x) === x && Math.round(p.y) === y)) continue;
       this.pickups.push({ type, x, y, t: 0, life: 11, seed: Math.random() * 10 });
@@ -809,7 +975,7 @@ export class Game {
     const cx = p.x + 0.5, cy = p.y + 0.5;
     if (p.type === 'star') {
       this.addStars(1);
-      if (!this.demo) this.score += 20 * this.level;
+      if (!this.demo) this.score += 20 * this.level * this.nerveMult;
       this.burst(cx, cy, { n: 10, colors: ['#ffeb3b', '#fff59d', '#ffffff'], speed: 2.5, life: 0.5, size: 0.1, type: 'star' });
       this.floater(cx, cy - 0.3, '+★', '#ffd54f', 0.55);
       this.sfx('star');

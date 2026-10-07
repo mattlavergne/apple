@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="The Apple">
   <title>The Apple</title>
   <meta name="description" content="Snake, flipped. You're the apple. Outsmart the snake, lead it into walls, thorns and its own tail, and don't get eaten!">
   <meta name="theme-color" content="#e8392f">
@@ -13,6 +17,8 @@
   <meta property="og:image" content="https://mattlavergne.github.io/apple/assets/og.png">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -28,7 +34,13 @@
           <small id="hud-world">Sunny Orchard</small>
         </div>
       </div>
-      <div id="hud-bites" class="hud-bites" aria-label="Bites left"></div>
+      <div class="hud-mid">
+        <div id="hud-bites" class="hud-bites" aria-label="Bites left"></div>
+        <div class="hud-chips">
+          <div id="hud-nerve" class="nerve" aria-live="polite"><b>NERVE</b> <span id="hud-nerve-x">&times;1</span><i id="hud-nerve-bar"></i></div>
+          <div id="hud-event" class="event-chip hidden"></div>
+        </div>
+      </div>
       <div class="hud-right">
         <div class="hud-score"><small>Score</small><strong id="hud-score">0</strong></div>
         <div class="hud-stars"><span class="star">&#9733;</span><strong id="hud-stars">0</strong></div>
@@ -42,6 +54,7 @@
         <div class="banner-level" id="banner-level">Level 1</div>
         <div class="banner-world" id="banner-world">Sunny Orchard</div>
         <div class="banner-foe" id="banner-foe">Gary the Garden Snake</div>
+        <div class="banner-event hidden" id="banner-event"></div>
         <p class="banner-tip" id="banner-tip"></p>
       </div>
     </main>
@@ -76,6 +89,10 @@
       <p class="tagline">It's Snake, but <em>you're</em> the apple.<br>Make the snake crash. Don't get eaten!</p>
       <div class="modes" id="modes" role="radiogroup" aria-label="Difficulty"></div>
       <button id="btn-play" class="btn btn-big btn-red">Play</button>
+      <button id="btn-daily" class="daily-card">
+        <span class="daily-left"><b id="daily-title">Daily Run</b><small id="daily-sub">Same levels for everyone today</small></span>
+        <span class="daily-right"><span class="streak" id="daily-streak">&#128293; 0</span><small id="daily-best">No run yet</small></span>
+      </button>
       <div class="row">
         <button id="btn-orchard" class="btn btn-green">&#127795; Orchard</button>
         <button id="btn-help" class="btn btn-blue">? How to play</button>
@@ -85,6 +102,7 @@
         <span class="pill" id="title-best">Best: &mdash;</span>
         <button class="toggle" id="tgl-music" aria-pressed="true">&#9835; Music</button>
         <button class="toggle" id="tgl-sfx" aria-pressed="true">&#128266; Sound</button>
+        <button class="toggle touch-only" data-controls>&#9757;&#65039; Swipe</button>
       </div>
     </div>
   </section>
@@ -101,7 +119,10 @@
         <div class="help-item"><span class="hi-icon">&#129440;</span><div><b>Hidden Rot</b> <kbd>Q</kbd><small>From level 3. Secretly rot for a few seconds. A snake that bites you is poisoned!</small></div></div>
         <div class="help-item"><span class="hi-icon">&#10024;</span><div><b>Decoy</b> <kbd>R</kbd><small>Unlock it in the Orchard. Leaves a shiny fake apple behind.</small></div></div>
         <div class="help-item"><span class="hi-icon">&#10071;</span><div><b>Watch for "!"</b><small>A snake about to LUNGE rears back with red eyes. Get out of the way!</small></div></div>
+        <div class="help-item"><span class="hi-icon">&#9889;</span><div><b>Nerve</b><small>Slip right past a snake's nose to build NERVE. It multiplies every point you score, up to &times;6. Play it safe and it cools off.</small></div></div>
+        <div class="help-item"><span class="hi-icon">&#127775;</span><div><b>Grades &amp; events</b><small>Clear levels fast, unbitten and brave for an S. Many levels roll a twist: fog, quakes, a golden snake, a mirror twin&hellip;</small></div></div>
       </div>
+      <p class="hint touch-only">On a phone: <b>swipe</b> to roll, <b>tap</b> to stop. Prefer holding a stick? Switch to Joystick in the menu.</p>
       <div class="pickups">
         <span><b class="c-star">&#9733;</b> Stars buy upgrades and skins</span>
         <span><b>&#127793;</b> Seeds refill brambles</span>
@@ -132,7 +153,13 @@
   <!-- Perk pick after a level -->
   <section id="screen-perks" class="screen">
     <div class="panel wide">
-      <h2 class="win-title" id="perks-title">Level clear!</h2>
+      <div class="grade-row">
+        <div id="grade-stamp" class="grade-stamp">A</div>
+        <div class="grade-info">
+          <h2 class="win-title" id="perks-title">Level clear!</h2>
+          <div id="grade-detail" class="grade-detail"></div>
+        </div>
+      </div>
       <p class="lead" id="perks-sub"></p>
       <p class="pick-label">Pick a power-up <span class="kbd-hint">(1, 2 or 3)</span></p>
       <div id="perk-cards" class="perk-cards"></div>
@@ -146,12 +173,15 @@
       <h2>Crunch! You got eaten.</h2>
       <div class="stats" id="over-stats"></div>
       <div id="over-best" class="new-best hidden">&#127942; New best!</div>
+      <div id="over-daily" class="over-daily hidden"></div>
+      <div id="over-grades" class="over-grades"></div>
       <div class="row">
         <button id="btn-again" class="btn btn-big btn-red">Play again</button>
       </div>
       <div class="row">
         <button id="btn-over-orchard" class="btn btn-green">&#127795; Orchard</button>
         <button id="btn-over-menu" class="btn btn-blue">Menu</button>
+        <button id="btn-share" class="btn btn-gold">&#128228; Share</button>
       </div>
     </div>
   </section>
@@ -168,10 +198,13 @@
       <div class="row small">
         <button class="toggle" id="tgl-music2" aria-pressed="true">&#9835; Music</button>
         <button class="toggle" id="tgl-sfx2" aria-pressed="true">&#128266; Sound</button>
+        <button class="toggle touch-only" data-controls>&#9757;&#65039; Swipe</button>
+        <button class="toggle haptics-only" id="tgl-haptics" aria-pressed="true">&#128243; Haptics</button>
       </div>
     </div>
   </section>
 
+  <div class="toast" id="toast" role="status"></div>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -69,6 +69,8 @@ const SFX = {
   lose: () => [392, 330, 262, 196].forEach((f, i) => tone(f, 0.3, { type: 'triangle', vol: 0.3, delay: 0.2 + i * 0.16 })),
   count: () => tone(523, 0.12, { type: 'square', vol: 0.12 }),
   go: () => tone(1047, 0.25, { type: 'square', vol: 0.14 }),
+  quake: () => { noise(0.9, { vol: 0.6, filter: 'lowpass', freq: 220, sweep: 60 }); tone(55, 0.8, { type: 'sawtooth', vol: 0.12, slide: 35 }); },
+  grade: () => [784, 1047, 1568].forEach((f, i) => tone(f, 0.25, { type: 'square', vol: 0.12, delay: i * 0.08 })),
   buy: () => [659, 880, 1319].forEach((f, i) => tone(f, 0.15, { type: 'square', vol: 0.12, delay: i * 0.06 })),
 };
 
@@ -141,4 +143,15 @@ export function startMusic(world = 0, boss = false) {
 export function stopMusic() {
   if (musicTimer) clearInterval(musicTimer);
   musicTimer = null;
+}
+
+// Close-call chime: climbs a pentatonic scale as the Nerve combo grows.
+const NEAR_STEPS = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24];
+export function playNear(n) {
+  if (!sfxOn || !ensure() || ctx.state !== 'running') return;
+  const semis = NEAR_STEPS[Math.min(NEAR_STEPS.length - 1, n - 1)];
+  const f = 660 * Math.pow(2, semis / 12);
+  tone(f, 0.12, { type: 'triangle', vol: 0.25 });
+  tone(f * 1.5, 0.18, { type: 'sine', vol: 0.12, delay: 0.05 });
+  noise(0.12, { vol: 0.15, filter: 'highpass', freq: 5000 });
 }

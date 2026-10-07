@@ -452,7 +452,7 @@ export class Renderer {
   draw(g, skin) {
     const ctx = this.ctx;
     this.layout(g);
-    const key = `${g.world}|${g.levelSeed}|${this.canvas.width}x${this.canvas.height}|${g.cols}x${g.rows}`;
+    const key = `${g.world}|${g.levelSeed}|${g.rockVersion}|${this.canvas.width}x${this.canvas.height}|${g.cols}x${g.rows}`;
     if (key !== this.staticKey) { this.buildStatic(g); this.staticKey = key; }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -467,15 +467,19 @@ export class Renderer {
     for (const b of g.brambles.values()) this.drawBramble(ctx, b, t);
     for (const p of g.pickups) this.drawPickup(ctx, p, t);
     if (g.decoy) this.drawDecoy(ctx, g.decoy, skin, t);
+    if (g.ghost) this.drawGhost(ctx, g, skin, t);
 
     const live = g.snakes.filter(s => !s.gone);
     for (const s of live) this.drawSnake(ctx, g, s, t, true);
     for (const s of live) this.drawSnake(ctx, g, s, t, false);
 
+    this.drawNerve(ctx, g, t);
     this.drawAppleInGame(ctx, g, skin, t);
 
     if (WORLDS[g.world].dark) this.drawNight(ctx, g, t);
+    if (g.event === 'fog' && !g.demo) this.drawFog(ctx, g, t);
     this.drawParticles(ctx, g);
+    if (g.slow > 0) this.drawSlowMo(ctx, g);
     this.drawFloaters(ctx, g, sx, sy);
     this.drawOverlayText(ctx, g);
   }
@@ -598,7 +602,8 @@ export class Renderer {
     const taperStart = Math.max(1, N - 6);
     const wAt = i => (i < taperStart ? W : W * (1 - 0.6 * (i - taperStart) / Math.max(1, N - 1 - taperStart)));
 
-    let bodyCol = sp.body, darkCol = sp.dark, bellyCol = sp.belly;
+    let bodyCol = sp.body, darkCol = sp.dark, bellyCol = sp.belly, patCol = sp.patternColor;
+    if (s.golden) { bodyCol = '#f6c21c'; darkCol = '#9a6b00'; bellyCol = '#fff5c2'; patCol = '#d99a00'; }
     if (s.dead && s.deadT < 0.7 && Math.floor(s.deadT * 14) % 2) { bodyCol = '#ffffff'; bellyCol = '#ffffff'; }
     else if (s.dead && s.cause === 'poison') { bodyCol = '#8fb35a'; darkCol = '#5b4a7a'; bellyCol = '#c5e1a5'; }
     else if (s.dead) { bodyCol = '#a0a0a0'; darkCol = '#606060'; bellyCol = '#d0d0d0'; }
@@ -626,15 +631,21 @@ export class Renderer {
       ctx.restore();
       return;
     }
+    if (s.golden && !s.dead) {
+      // A warm, breathing halo marks the snake worth 3x.
+      ctx.shadowColor = 'rgba(255, 200, 0, 0.9)';
+      ctx.shadowBlur = (16 + Math.sin(t * 4) * 6) * this.dpr;
+    }
     stroke(darkCol, 0.1);
+    ctx.shadowBlur = 0;
     stroke(bodyCol, 0);
     ctx.globalAlpha = 0.55;
     stroke(bellyCol, 0, -0.04, -0.06, 0.32);
     ctx.globalAlpha = 1;
 
     // Pattern
-    ctx.fillStyle = s.dead ? 'rgba(0,0,0,0.2)' : sp.patternColor;
-    ctx.strokeStyle = s.dead ? 'rgba(0,0,0,0.2)' : sp.patternColor;
+    ctx.fillStyle = s.dead ? 'rgba(0,0,0,0.2)' : patCol;
+    ctx.strokeStyle = s.dead ? 'rgba(0,0,0,0.2)' : patCol;
     for (let i = 2; i < N - 1; i += 2) {
       const p = pts[i], q = pts[i - 1];
       const ang = Math.atan2(p.y - q.y, p.x - q.x);
@@ -651,6 +662,16 @@ export class Renderer {
         ctx.beginPath(); ctx.moveTo(-w * 0.2, 0); ctx.lineTo(0, -w * 0.2); ctx.lineTo(w * 0.2, 0); ctx.lineTo(0, w * 0.2); ctx.closePath(); ctx.fill();
       }
       ctx.restore();
+    }
+
+    if (s.golden && !s.dead) {
+      for (let i = 1; i < N; i += 3) {
+        const tw = (Math.sin(t * 5 + i * 1.7) + 1) / 2;
+        if (tw < 0.6) continue;
+        ctx.fillStyle = `rgba(255,255,255,${(tw - 0.6) * 2.2})`;
+        starPath(ctx, pts[i].x + 0.12, pts[i].y - 0.15, 0.06 + tw * 0.08, 0.35, 4);
+        ctx.fill();
+      }
     }
 
     if (s.popped > 0) { ctx.restore(); return; }
@@ -876,6 +897,98 @@ export class Renderer {
     }
   }
 
+  // The mirror twin: a translucent reflection, plus the faint mirror line it lives across.
+  drawGhost(ctx, g, skin, t) {
+    const gh = g.ghost;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(179,157,219,0.35)';
+    ctx.lineWidth = 0.05;
+    ctx.setLineDash([0.25, 0.2]);
+    ctx.lineDashOffset = -t * 0.6;
+    ctx.beginPath(); ctx.moveTo(g.cols / 2, 0); ctx.lineTo(g.cols / 2, g.rows); ctx.stroke();
+    ctx.restore();
+    const rp = g.appleRenderPos();
+    const gx = g.cols - 1 - rp.x + 0.5, gy = rp.y + 0.5;
+    if (gh.down > 0) {
+      ctx.strokeStyle = 'rgba(179,157,219,0.5)';
+      ctx.lineWidth = 0.04;
+      ctx.beginPath(); ctx.arc(gx, gy, 0.35, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - gh.down / 4)); ctx.stroke();
+      return;
+    }
+    const wob = Math.sin(t * 4) * 0.03;
+    const glow = ctx.createRadialGradient(gx, gy, 0.1, gx, gy, 0.8);
+    glow.addColorStop(0, 'rgba(179,157,255,0.55)'); glow.addColorStop(1, 'rgba(200,180,255,0)');
+    ctx.fillStyle = glow; ctx.fillRect(gx - 0.8, gy - 0.8, 1.6, 1.6);
+    const ghostSkin = { ...skin, base: '#b39dff', dark: '#5e45b8', light: '#f1ebff', leaf: '#9be7c4' };
+    drawApple(ctx, gx, gy - wob, 0.38, { skin: ghostSkin, time: t, alpha: gh.hidden ? 0.18 : 0.8 + Math.sin(t * 6) * 0.1, sx: -1 });
+  }
+
+  // Nerve: a glowing ring around the apple that fills with the combo and drains as it cools.
+  drawNerve(ctx, g, t) {
+    if (!g.nerve || g.demo || g.state !== 'play') return;
+    const rp = g.appleRenderPos();
+    const cx = rp.x + 0.5, cy = rp.y + 0.5;
+    const heat = Math.min(1, g.nerve / 12);
+    const col = heat < 0.5 ? `rgba(128,222,234,` : `rgba(255,${Math.round(213 - heat * 120)},79,`;
+    const pulse = 0.5 + 0.5 * Math.sin(t * (6 + g.nerve));
+    const glow = ctx.createRadialGradient(cx, cy, 0.2, cx, cy, 0.95 + heat * 0.4);
+    glow.addColorStop(0, col + (0.25 + pulse * 0.2 * heat) + ')');
+    glow.addColorStop(1, col + '0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3);
+    ctx.strokeStyle = col + '0.9)';
+    ctx.lineWidth = 0.07;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 0.58, -Math.PI / 2, -Math.PI / 2 + TAU * clamp01(g.nerveT / 4));
+    ctx.stroke();
+  }
+
+  // Thick fog: only a pocket around the apple is clear. Snake eyes glow through it.
+  drawFog(ctx, g, t) {
+    const rp = g.appleRenderPos();
+    const cx = rp.x + 0.5, cy = rp.y + 0.5;
+    const r0 = 2.6 + Math.sin(t * 1.3) * 0.15;
+    const grad = ctx.createRadialGradient(cx, cy, r0, cx, cy, r0 + 2.8);
+    grad.addColorStop(0, 'rgba(226,232,240,0)');
+    grad.addColorStop(1, 'rgba(226,232,240,0.97)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(-0.6, -0.6, g.cols + 1.2, g.rows + 1.2);
+    // drifting wisps
+    for (let i = 0; i < 6; i++) {
+      const wx = ((t * (0.25 + i * 0.05) + i * 5.3) % (g.cols + 6)) - 3;
+      const wy = (i * 3.1) % g.rows;
+      const w = ctx.createRadialGradient(wx, wy, 0, wx, wy, 3);
+      w.addColorStop(0, 'rgba(255,255,255,0.25)'); w.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = w;
+      ctx.fillRect(wx - 3, wy - 3, 6, 6);
+    }
+    for (const s of g.snakes) {
+      if (s.dead) continue;
+      const h = this.snakePoints(g, s)[0];
+      const d = Math.hypot(h.x + 0.5 - cx, h.y + 0.5 - cy);
+      if (d < r0 + 0.5) continue;
+      const a = clamp01((d - r0) / 2) * (s.lunge === 'windup' ? 1 : 0.8);
+      ctx.fillStyle = s.lunge === 'windup' ? `rgba(255,40,40,${a})` : `rgba(255,214,0,${a})`;
+      const ang = Math.atan2(s.dir.y, s.dir.x) + Math.PI / 2;
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.arc(h.x + 0.5 + Math.cos(ang) * 0.2 * side, h.y + 0.5 + Math.sin(ang) * 0.2 * side, 0.09, 0, TAU);
+        ctx.fill();
+      }
+    }
+  }
+
+  drawSlowMo(ctx, g) {
+    const a = clamp01(g.slow / 0.25) * 0.35;
+    const cx = g.cols / 2, cy = g.rows / 2;
+    const grad = ctx.createRadialGradient(cx, cy, Math.min(g.cols, g.rows) * 0.35, cx, cy, Math.max(g.cols, g.rows) * 0.7);
+    grad.addColorStop(0, 'rgba(128,222,234,0)');
+    grad.addColorStop(1, `rgba(77,208,225,${a})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(-1, -1, g.cols + 2, g.rows + 2);
+  }
+
   drawNight(ctx, g, t) {
     const rp = g.appleRenderPos();
     const cx = rp.x + 0.5, cy = rp.y + 0.5;
@@ -908,6 +1021,10 @@ export class Renderer {
       } else if (p.type === 'heart') {
         heartPath(ctx, p.x, p.y, p.size);
         ctx.fill();
+      } else if (p.type === 'ring') {
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 0.05;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (1 + clamp01(1 - p.life / p.max) * 7), 0, TAU); ctx.stroke();
       } else {
         ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, TAU); ctx.fill();
       }

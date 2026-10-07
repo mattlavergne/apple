@@ -59,11 +59,23 @@ export class Input {
     this.stack = this.stack.filter(k => k !== e.code);
   }
 
-  // Floating joystick: touch anywhere on the field and drag.
-  attachJoystick(el, knob) {
-    let id = null, ox = 0, oy = 0;
+  // Touch controls on the field. Two schemes:
+  //  - 'swipe' (default): swipe to roll that way and keep rolling; swipe again to
+  //    turn (also mid-drag); tap to stop. Stops by itself when you bump into something.
+  //  - 'joystick': a floating stick under your thumb; you roll while you hold it.
+  attachTouch(el, knob) {
+    this.touchMode = 'swipe';
+    let id = null, ox = 0, oy = 0, sx = 0, sy = 0, t0 = 0, travel = 0;
     const DEAD = 16;
-    const show = (x, y, dx, dy) => {
+    const setDir = dir => {
+      if (!this.joy || this.joy.x !== dir.x || this.joy.y !== dir.y) {
+        this.joy = dir;
+        if (this.taps.length < 2) this.taps.push(dir);
+        if (this.onSwipe) this.onSwipe(dir);
+      }
+    };
+    const dirOf = (dx, dy) => Math.abs(dx) > Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
+    const show = (dx, dy) => {
       const r = el.getBoundingClientRect();
       knob.style.display = 'block';
       knob.style.left = (ox - r.left) + 'px';
@@ -74,29 +86,42 @@ export class Input {
     };
     el.addEventListener('pointerdown', e => {
       if (e.pointerType === 'mouse' || !this.enabled || id !== null) return;
-      id = e.pointerId; ox = e.clientX; oy = e.clientY;
+      id = e.pointerId; ox = sx = e.clientX; oy = sy = e.clientY; t0 = performance.now(); travel = 0;
       el.setPointerCapture(id);
-      show(ox, oy, 0, 0);
+      if (this.touchMode === 'joystick') show(0, 0);
       e.preventDefault();
     });
     el.addEventListener('pointermove', e => {
       if (e.pointerId !== id) return;
       const dx = e.clientX - ox, dy = e.clientY - oy;
-      show(ox, oy, dx, dy);
-      if (Math.hypot(dx, dy) < DEAD) { this.joy = null; return; }
-      const dir = Math.abs(dx) > Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
-      if (!this.joy || this.joy.x !== dir.x || this.joy.y !== dir.y) {
-        this.joy = dir;
-        if (this.taps.length < 2) this.taps.push(dir);
+      travel = Math.max(travel, Math.hypot(e.clientX - sx, e.clientY - sy));
+      if (this.touchMode === 'joystick') {
+        show(dx, dy);
+        if (Math.hypot(dx, dy) < DEAD) { this.joy = null; return; }
+        setDir(dirOf(dx, dy));
+        // Let the stick follow a finger that drags far away so turning stays snappy.
+        const len = Math.hypot(dx, dy);
+        if (len > 60) { ox += dx * (1 - 60 / len); oy += dy * (1 - 60 / len); }
+        return;
       }
-      // Let the stick follow a finger that drags far away so turning stays snappy.
-      const len = Math.hypot(dx, dy);
-      if (len > 60) { ox += dx * (1 - 60 / len); oy += dy * (1 - 60 / len); }
+      // Swipe: each 22px of travel in a new direction is a new swipe. Re-anchor so
+      // you can carve turns without lifting your finger.
+      if (Math.hypot(dx, dy) >= 22) {
+        setDir(dirOf(dx, dy));
+        ox = e.clientX; oy = e.clientY;
+      }
     });
     const end = e => {
       if (e.pointerId !== id) return;
-      id = null; this.joy = null;
+      id = null;
       knob.style.display = 'none';
+      if (this.touchMode === 'joystick') { this.joy = null; return; }
+      // A short, still touch is a tap: stop rolling.
+      if (travel < 12 && performance.now() - t0 < 300) {
+        this.joy = null;
+        this.taps.length = 0;
+        if (this.onTapStop) this.onTapStop();
+      }
     };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
