@@ -617,6 +617,11 @@ export class Renderer {
 
     let bodyCol = sp.body, darkCol = sp.dark, bellyCol = sp.belly, patCol = sp.patternColor;
     if (s.golden) { bodyCol = '#f6c21c'; darkCol = '#9a6b00'; bellyCol = '#fff5c2'; patCol = '#d99a00'; }
+    if (s.sick && !s.dead) {
+      // Sickly green with a purple bruise that pulses as it withers.
+      const p = 0.5 + 0.5 * Math.sin(t * 6);
+      bodyCol = p > 0.5 ? '#9fbf5a' : '#95b552'; darkCol = '#5b3f7a'; bellyCol = '#e6ee9c'; patCol = '#8e44ad';
+    }
     if (s.dead && s.deadT < 0.7 && Math.floor(s.deadT * 14) % 2) { bodyCol = '#ffffff'; bellyCol = '#ffffff'; }
     else if (s.dead && s.cause === 'poison') { bodyCol = '#8fb35a'; darkCol = '#5b4a7a'; bellyCol = '#c5e1a5'; }
     else if (s.dead) { bodyCol = '#a0a0a0'; darkCol = '#606060'; bellyCol = '#d0d0d0'; }

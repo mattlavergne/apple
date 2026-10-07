@@ -117,7 +117,8 @@ export class Game {
     const cx = Math.floor(cols / 2), cy = Math.floor(rows / 2);
     this.apple = {
       x: cx, y: cy, fromX: cx, fromY: cy, animT: 1, animDur: 0.1, moveT: 0,
-      facing: { x: 0, y: -1 }, prev: null, invuln: 0, rot: 0, rotCd: 0, dashCd: 0, decoyCd: 0,
+      // Rot starts each level half-charged so it can't open every level.
+      facing: { x: 0, y: -1 }, prev: null, invuln: 0, rot: 0, rotCd: (this.stats.rotCd + this.stats.rotDur) * 0.5, dashCd: 0, decoyCd: 0,
       bump: 0, bumpDir: { x: 0, y: 0 }, squash: 0, dashFx: 0, drop: 1, dying: 0, aiT: 0,
     };
 
@@ -142,7 +143,7 @@ export class Game {
         id: i, species, body, old: body.map(c => ({ ...c })), dir: { ...sp.d }, acc: 0,
         interval: p.step, grow: p.startLen - 3, dead: false, deadT: 0, gone: false, popped: 0,
         stun: 0, chomp: 0, confused: 0, lunge: 'none', lungeT: 0, lungeCd: rand(1.5, p.lungeCd),
-        fast: 0, sniffed: false, sniffShown: false, tongue: rand(0.5, 2), tongueT: 0,
+        fast: 0, sniffShown: false, sick: false, sickT: 0, tongue: rand(0.5, 2), tongueT: 0,
         blink: rand(2, 5), blinkT: 0, boss: species.id === 'cobra' && p.boss, cause: null,
       });
     }
@@ -393,7 +394,7 @@ export class Game {
     this.growT += dt;
     if (this.growT >= this.params.growEvery) {
       this.growT -= this.params.growEvery;
-      for (const s of this.snakes) if (!s.dead) s.grow++;
+      for (const s of this.snakes) if (!s.dead && !s.sick) s.grow++;
     }
   }
 
@@ -419,7 +420,7 @@ export class Game {
       const d = input.taps.shift() || input.held;
       if (d) {
         a.facing = { x: d.x, y: d.y };
-        if (this.tryMove(d)) a.moveT = st.appleStep * this.ev.appleStep;
+        if (this.tryMove(d)) a.moveT = st.appleStep * this.appleStepMul();
         else {
           if (a.bump <= 0.01) this.sfx('bump');
           this.emit('bump');
@@ -439,7 +440,7 @@ export class Game {
     a.prev = { x: a.x, y: a.y };
     a.x = nx; a.y = ny;
     a.animT = 0;
-    a.animDur = this.stats.appleStep * this.ev.appleStep * 0.95;
+    a.animDur = this.stats.appleStep * this.appleStepMul() * 0.95;
     a.squash = 1;
     return true;
   }
@@ -497,11 +498,9 @@ export class Game {
     const a = this.apple;
     if (!this.rotUnlocked || a.rotCd > 0 || a.rot > 0) return false;
     a.rot = this.stats.rotDur;
+    a.rotAt = this.time;
     a.rotCd = this.stats.rotCd + this.stats.rotDur;
-    for (const s of this.snakes) {
-      s.sniffed = !this.stats.odorless && Math.random() < this.params.sniff;
-      s.sniffShown = false;
-    }
+    for (const s of this.snakes) s.sniffShown = false;
     const rp = this.appleRenderPos();
     this.burst(rp.x + 0.5, rp.y + 0.5, { n: 12, colors: ['#7a5c2e', '#9b8a3c', '#5d4a1f'], speed: 1.6, life: 0.6, size: 0.1 });
     this.sfx('rot');
@@ -554,6 +553,14 @@ export class Game {
     s.blinkT = Math.max(0, s.blinkT - dt);
     s.chomp = Math.max(0, s.chomp - dt);
     s.confused = Math.max(0, s.confused - dt);
+    if (s.sick && !s.dead && Math.random() < dt * 8) {
+      const c = s.body[Math.floor(Math.random() * s.body.length)];
+      this.particles.push({
+        x: c.x + 0.3 + Math.random() * 0.4, y: c.y + 0.4, vx: (Math.random() - 0.5) * 0.4, vy: -0.9,
+        life: 0.7, max: 0.7, size: 0.05 + Math.random() * 0.06, color: Math.random() < 0.5 ? '#c5e1a5' : '#ce93d8',
+        type: 'dot', grav: 0, rot: 0, vr: 0,
+      });
+    }
     if (s.dead && !s.gone) {
       s.deadT += dt;
       if (s.deadT > 0.7) {
@@ -574,6 +581,14 @@ export class Game {
     const p = this.params;
     for (const s of this.snakes) {
       if (s.dead) continue;
+      if (s.sick) {
+        s.sickT += dt;
+        if (s.sickT >= s.witherEvery) {
+          s.sickT -= s.witherEvery;
+          this.witherSnake(s);
+          if (s.dead) { if (this.state !== 'play') return; continue; }
+        }
+      }
       if (s.stun > 0) {
         s.stun -= dt;
         if (s.stun <= 0) s.acc = 0;
@@ -585,7 +600,7 @@ export class Game {
         continue;
       }
       if (s.lunge === 'none') s.lungeCd -= dt;
-      s.interval = s.lunge === 'go' ? p.step * 0.45 : p.step;
+      s.interval = s.lunge === 'go' ? p.step * 0.45 : p.step * (s.sick ? 1.25 : 1);
       s.acc += dt;
       if (s.acc >= s.interval) {
         s.acc = Math.min(s.acc - s.interval, s.interval * 0.5);
@@ -593,7 +608,7 @@ export class Game {
         if (this.state !== 'play') return;
         if (s.dead) continue;
         if (s.lunge === 'go' && --s.fast <= 0) { s.lunge = 'none'; s.lungeCd = p.lungeCd; }
-        else if (s.lunge === 'none' && p.lunge && s.lungeCd <= 0 && !this.decoy && s.stun <= 0) {
+        else if (s.lunge === 'none' && p.lunge && s.lungeCd <= 0 && !this.decoy && s.stun <= 0 && !s.sick) {
           const dist = manhattan(s.body[0], this.apple);
           if (dist >= 2 && dist <= 4 && this.apple.invuln <= 0) {
             s.lunge = 'windup'; s.lungeT = 0.5; s.lungeAt = this.time; this.sfx('hiss');
@@ -608,14 +623,27 @@ export class Game {
     const a = this.apple;
     const g = this.ghost;
     if (g && !g.hidden && manhattan(s.body[0], g) < manhattan(s.body[0], a)) return g;
-    if (a.rot > 0 && s.sniffed && manhattan(s.body[0], a) <= 3) {
+    if (this.smellsRot(s)) {
       if (!s.sniffShown) {
         s.sniffShown = true;
-        this.floater(s.body[0].x + 0.5, s.body[0].y - 0.2, 'sniff sniff…', '#7a5c2e', 0.5);
+        this.floater(s.body[0].x + 0.5, s.body[0].y - 0.2, 'sniff\u2026 EW!', '#7a5c2e', 0.5);
       }
       return null;
     }
     return a;
+  }
+
+  // Rot is only hidden for a moment: a snake within 3 tiles smells rot that has
+  // been around for a while. A lunging snake is committed and smells nothing.
+  smellsRot(s) {
+    const a = this.apple;
+    if (a.rot <= 0 || s.lunge === 'go' || s.sick) return false;
+    if (this.time - a.rotAt < this.params.smell + this.stats.scent) return false;
+    return manhattan(s.body[0], a) <= 3;
+  }
+
+  appleStepMul() {
+    return this.ev.appleStep * (this.apple.rot > 0 ? 1.25 : 1);
   }
 
   planGrid(s) {
@@ -635,7 +663,7 @@ export class Game {
       for (let i = o.popped; i < len; i++) g[this.idx(o.body[i].x, o.body[i].y)] = 1;
     }
     const a = this.apple;
-    if (a.rot > 0 && s.sniffed && manhattan(s.body[0], a) <= 3) g[this.idx(a.x, a.y)] = 1;
+    if (this.smellsRot(s)) g[this.idx(a.x, a.y)] = 1;
     return g;
   }
 
@@ -789,6 +817,57 @@ export class Game {
     }
   }
 
+  // Poison doesn't kill on the spot: the snake gags, turns sickly, slows down,
+  // stops growing and withers away a segment at a time. It still hunts you.
+  poisonSnake(s) {
+    s.sick = true;
+    s.sickT = 0;
+    s.grow = 0;
+    // Wither over a few seconds (longer on later levels), whatever its length.
+    const sickFor = 5 + 0.4 * Math.min(this.level, 15);
+    s.witherEvery = sickFor / Math.max(1, s.body.length - 3);
+    s.stun = 0.7;
+    s.confused = 0.7;
+    s.lunge = 'none';
+    const h = s.body[0];
+    if (!this.demo) this.score += 100 * this.level * this.nerveMult;
+    this.floater(h.x + 0.5, Math.max(0.8, h.y), 'POISONED!', '#8e44ad', 0.9);
+    this.shake = Math.max(this.shake, 0.4);
+    this.sfx('poison');
+    this.emit('poison');
+  }
+
+  witherSnake(s) {
+    const c = s.body[s.body.length - 1];
+    if (s.body.length <= 3) {
+      this.killSnake(s, 'poison', s.body[0].x, s.body[0].y);
+      return;
+    }
+    s.body.pop();
+    if (s.old.length > s.body.length) s.old.pop();
+    this.burst(c.x + 0.5, c.y + 0.5, { n: 5, colors: ['#9ccc65', '#ab47bc', '#c5e1a5'], speed: 1.5, life: 0.5, size: 0.1 });
+  }
+
+  // After a poisoned bite the apple pops one tile out of the snake's mouth,
+  // away from the head, instead of teleporting to safety.
+  bounceApple(s) {
+    const a = this.apple, h = s.body[0], back = s.body[1] || h;
+    let best = null, bestD = -1;
+    for (const d of DIRS4) {
+      const x = a.x + d.x, y = a.y + d.y;
+      if (!this.appleCanEnter(x, y)) continue;
+      const dist = manhattan({ x, y }, back) + (d.x === s.dir.x && d.y === s.dir.y ? 0.5 : 0);
+      if (dist > bestD) { bestD = dist; best = { x, y }; }
+    }
+    if (!best) { this.relocateApple(0.8); return; }
+    const rp = this.appleRenderPos();
+    a.fromX = rp.x; a.fromY = rp.y;
+    a.x = best.x; a.y = best.y;
+    a.animT = 0; a.animDur = 0.12; a.squash = 1.2;
+    a.prev = null;
+    a.invuln = Math.max(a.invuln, 0.5);
+  }
+
   scratchSnake(s, nx, ny) {
     s.stun = 1.1;
     s.confused = 1.1;
@@ -882,15 +961,25 @@ export class Game {
     if (a.rot > 0) {
       a.rot = 0;
       this.burst(rp.x + 0.5, rp.y + 0.5, { n: 20, colors: ['#8bc34a', '#9c6ade', '#6d4c2f'], speed: 3, life: 0.8, size: 0.14 });
-      // The apple survives: push it out of the snake's mouth.
-      this.killSnake(s, 'poison', a.x, a.y);
-      this.relocateApple(0.8);
+      if (s.sick) {
+        // A second dose finishes it off.
+        this.killSnake(s, 'poison', a.x, a.y);
+        this.relocateApple(0.8);
+        return;
+      }
+      this.poisonSnake(s);
+      this.bounceApple(s);
       return;
     }
     this.bites--;
     this.levelBites++;
     if (this.nerve > 0) { this.nerve = 0; this.emit('nerve', 0); }
     if (this.demo) this.bites = Math.max(1, this.bites);
+    if (s.sick) {
+      // A fresh apple is the cure. Keep away from a poisoned snake!
+      s.sick = false;
+      this.floater(s.body[0].x + 0.5, Math.max(0.8, s.body[0].y - 0.6), 'CURED!', '#7cb342', 0.6);
+    }
     s.grow += 3;
     s.chomp = 0.5;
     s.stun = 0.45;

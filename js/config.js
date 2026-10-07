@@ -73,7 +73,8 @@ export function levelParams(level, mode) {
     lunge: eff >= 3 && !(mode === 'sprout' && L < 6),
     lungeCd: Math.max(2.4, 6.5 - 0.25 * L),
     lungeSteps: 4 + Math.floor(L / 6),
-    sniff: eff >= 10 ? Math.min(0.8, 0.4 + 0.05 * (eff - 10)) : 0,
+    // Seconds before a snake within 3 tiles smells active rot.
+    smell: Math.max(0.3, 1.0 - 0.07 * Math.max(0, eff - 3)),
     startLen: 4 + Math.floor(L / 3),
     rockClusters: Math.min(9, 1 + Math.floor(L / 2)),
   };
@@ -89,11 +90,11 @@ export function speciesFor(level, i) {
 export const TIPS = {
   1: 'Move with the Arrow keys or WASD. Lead the snake into a wall, a rock, or its own tail!',
   2: 'Drop a bramble behind you (E) while a snake chases you. It needs a moment to spot fresh thorns, so if it\u2019s right on your tail: OUCH! Slipping right past a snake\u2019s nose builds NERVE, which multiplies your score.',
-  3: 'Snakes now LUNGE (watch for the red “!”). A lunging snake can’t dodge fresh thorns, but a normal one just gets scratched. NEW: Hidden Rot (Q) poisons any snake that bites you.',
+  3: 'Snakes now LUNGE (watch for the red “!”): a lunging snake can’t dodge fresh thorns. NEW: Hidden Rot (Q)! A snake that bites you while you’re rotten gets SICK and withers away, unless it bites a fresh apple first. Run!',
   4: 'Snakes spot brambles faster as they grow up, and they won\u2019t follow you into a dead end. Use thorns to build walls and box them in.',
   5: 'BOSS LEVEL! King Cobra Carl brought a friend. Get them to crash into each other!',
   6: 'Snakes are getting clever. They try to avoid dead ends now, so you’ll need real traps.',
-  10: 'Older snakes can SNIFF rot sometimes. Go rotten at the very last second!',
+  10: 'Snakes smell rot faster now. Go rotten at the very last second, or bait a lunge: lunging snakes can’t smell a thing.',
   11: 'Two snakes from now on. Tangle them together for bonus points!',
 };
 
@@ -101,10 +102,11 @@ export const GENERIC_TIPS = [
   'Snakes grow longer every few seconds. Run them out of room!',
   'Grab stars to unlock upgrades and skins in the Orchard.',
   'Seed pickups refill your brambles.',
-  'A snake that bites a rotten apple is out instantly, and it’s worth double points.',
+  'Sick snakes are slow and can’t lunge. Rot one again for an instant knockout!',
   'Corners are dangerous for you AND the snake.',
   'Drop a bramble right after a sharp turn. Snakes can’t stop!',
   'Hearts heal one bite.',
+  'A sick snake that bites you is cured. Keep your distance until it withers!',
   'NERVE multiplies everything, even crash bonuses. Dance close before you spring the trap!',
   'A lunging snake that just misses you counts double for NERVE.',
   'S grades need no bites, a quick clear and a NERVE of 4 or more.',
@@ -127,7 +129,7 @@ export function baseStats(mode) {
     decoyCd: 16,
     decoyDur: 5,
     magnet: 0,
-    odorless: false,
+    scent: 0,
     luck: 1,
     starBonus: 1,
   };
@@ -152,7 +154,7 @@ export const PERKS = [
   { id: 'regrow', icon: '🌱', name: 'Regrowth', desc: 'Brambles regrow twice as fast.', max: 2, apply: s => { s.thornRegen *= 0.5; } },
   { id: 'deeprot', icon: '🦠', name: 'Deep Rot', desc: 'Rot lasts 1s longer.', max: 3, apply: s => { s.rotDur += 1; } },
   { id: 'rotspread', icon: '🍂', name: 'Fast Decay', desc: 'Rot recharges 25% faster.', max: 3, apply: s => { s.rotCd *= 0.75; } },
-  { id: 'odorless', icon: '🤫', name: 'Odorless Rot', desc: 'Snakes can never sniff your rot.', max: 1, apply: s => { s.odorless = true; } },
+  { id: 'odorless', icon: '🤫', name: 'Faint Scent', desc: 'Snakes take 0.4s longer to smell your rot.', max: 2, apply: s => { s.scent += 0.4; } },
   { id: 'skin', icon: '❤️', name: 'Extra Crunchy', desc: '+1 max bite and heal fully.', max: 2, apply: s => { s.maxBites += 1; } , heal: true },
   { id: 'magnet', icon: '🧲', name: 'Star Magnet', desc: 'Pull stars from further away.', max: 2, apply: s => { s.magnet += 1.5; } },
   { id: 'lucky', icon: '🍀', name: 'Lucky Leaf', desc: 'Pickups appear more often.', max: 2, apply: s => { s.luck *= 1.35; } },
