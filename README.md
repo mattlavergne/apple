@@ -13,7 +13,7 @@ Pure HTML/CSS/JS with no build step and no dependencies. All graphics are drawn 
 - **Decoy** (`R`): a shiny fake apple. Unlock it in the Orchard, or get it as a perk.
 - **Pause** with `P` or `Esc`.
 
-Snakes grow every few seconds, so time is on your side, but they also get smarter as you go:
+Snakes grow every few seconds and get **hungrier** the longer a level lasts: they speed up (HUNGRY at 1.3×, FRENZY at 1.6×, up to 1.9×), the music speeds up with them, and by FRENZY they're faster than you. Waiting it out isn't a strategy; setting traps is. Getting bitten calms them down a little. Sprout mode ramps at half speed and caps at 1.45×. Snakes also get smarter as you go:
 
 | Levels | Snake brain |
 |---|---|
@@ -36,6 +36,8 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 - **Nerve:** slipping right past a snake's nose (a *close call*) builds a combo that multiplies every point you earn, up to ×6. A lunging snake that just misses counts double, and big moments trigger a beat of slow motion. Playing safe lets it cool off, so careful players can survive while brave players chase the high scores.
 - **Grades:** every cleared level is graded S/A/B/C on speed, bites taken and peak Nerve, with bonus stars for good grades.
 - **Level events:** from level 3, most non-boss levels roll a twist: Star Shower, Thick Fog, Golden Snake, Earthquake, Mirror Twin, Hungry Hour, Tailwind or Bramble Bloom.
+- **Nemesis:** the snake that ends your run remembers you. It gets a name and title (*Vicky the Apple-Eater*) and ambushes a later run somewhere in levels 3–6 with a scar and a red glow. Each rank makes it smarter, a bit faster, quicker to lunge, quicker to smell rot and slower to wither. Every time it eats you again it ranks up (up to 5) and its bounty grows. Beat it to claim the bounty. Its WANTED poster sits on the title screen. Daily runs don't involve the nemesis.
+- **Daily Contracts:** three challenges a day (one easy, one medium, one hard), the same for everyone, e.g. "Scratch 3 snakes with fresh thorns", "Reach Nerve ×3", "Thorn a lunging snake". Each pays stars, plus a bonus for all three.
 - **Daily Run:** one seeded run per day. Everyone gets the same layouts, events and power-up offers, and Orchard upgrades are switched off so it's fair. Your first Daily each day pays streak-boosted stars, and the result can be shared as an emoji card.
 
 ## Phones
@@ -71,6 +73,7 @@ Balance checks (headless bots, run per level):
 - `node tools/camper.mjs [trials] [reaction]`: "drop a bramble and wait behind it". It should only pay off on the first couple of levels.
 - `node tools/rotcamper.mjs [trials]`: "stand still and rot when the snake is close". It should almost never clear a level.
 - `node tools/rotkite.mjs [trials]`: rot at the right moment, then run until the snake withers. This is the skill play, and it should usually work but take a while.
+- `node tools/nemesis.mjs [trials] [level]`: how often the general bot beats a normal snake versus a nemesis of rank 1–5.
 
 `node tools/sim.mjs [runs] [mode] [dailySeed]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
 

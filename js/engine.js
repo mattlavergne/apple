@@ -1,6 +1,7 @@
 // Game simulation. No DOM access here, so it can also run headless (see tools/sim.mjs).
 import {
   WORLDS, worldIndexFor, levelParams, speciesFor, baseStats, UPGRADES, PERKS, MODES, eventFor,
+  SPECIES, nemesisName, nemesisBounty,
 } from './config.js';
 
 export const DIRS4 = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
@@ -50,11 +51,16 @@ export class Game {
   emit(name, data) { if (this.hooks.event) this.hooks.event(name, data, this); }
 
   // ---------------------------------------------------------------- run / level
-  newRun({ mode = 'classic', upgrades = {}, demo = false, cols = 25, rows = 17, level = 1, seed = null } = {}) {
+  newRun({ mode = 'classic', upgrades = {}, demo = false, cols = 25, rows = 17, level = 1, seed = null, nemesis = null } = {}) {
     this.mode = mode;
     this.demo = demo;
     this.seed = seed;
     this.daily = seed != null;
+    // Your nemesis ambushes you once per run, somewhere in levels 3-6.
+    this.nemesis = nemesis && !demo && !this.daily ? { ...nemesis } : null;
+    this.nemesisLevel = this.nemesis ? 3 + Math.floor(Math.random() * 4) : 0;
+    this.nemesisBeaten = false;
+    this.eatenBy = null;
     this.cols = cols;
     this.rows = rows;
     const s = baseStats(mode);
@@ -105,6 +111,9 @@ export class Game {
     this.nervePeak = 0;
     this.slow = 0;
     this.levelBites = 0;
+    this.hungerT = 0;
+    this.hunger = 1;
+    this.hungerStage = 0;
     this.quakeT = 6;
     this.rockVersion = 0;
     this.ghost = this.event === 'mirror' ? { x: 0, y: 0, down: 0, hidden: false } : null;
@@ -149,6 +158,16 @@ export class Game {
     }
 
     if (this.event === 'golden') this.snakes[lrandi(0, this.snakes.length - 1)].golden = true;
+    if (this.nemesis && this.level === this.nemesisLevel && !this.nemesisBeaten) {
+      // The grudge match: your nemesis takes the first slot, faster, smarter and longer.
+      const s = this.snakes[0], n = this.nemesis;
+      s.species = SPECIES.find(sp => sp.id === n.species) || s.species;
+      s.nemesis = n;
+      s.golden = false;
+      s.speedMul = 1 + 0.03 * n.rank;
+      s.grow += 1 + n.rank;
+      s.lungeCd = rand(0.5, 1.5);
+    }
 
     this.generateRocks();
     this.updateGhost();
@@ -156,6 +175,25 @@ export class Game {
     this.countT = 3;
     this.lastCount = 99;
     this.emit('level');
+  }
+
+  // Hunger ramps snake speed during a level: HUNGRY at 1.3x, FRENZY at 1.6x.
+  updateHunger(dt) {
+    const p = this.params;
+    this.hungerT += dt;
+    this.hunger = Math.min(p.hungerCap, 1 + p.hungerRate * this.hungerT);
+    const stage = this.hunger >= 1.6 ? 2 : this.hunger >= 1.3 ? 1 : 0;
+    if (stage > this.hungerStage && !this.demo) {
+      const cx = this.cols / 2, cy = this.rows / 2;
+      if (stage === 1) this.floater(cx, cy - 2, 'The snakes are getting HUNGRY\u2026', '#ffb74d', 0.75, 1.8);
+      else {
+        this.floater(cx, cy - 2, 'FRENZY!', '#ff5252', 1.5, 1.8);
+        this.shake = Math.max(this.shake, 0.6);
+      }
+      this.sfx(stage === 2 ? 'frenzy' : 'hiss');
+      this.emit('hunger', stage);
+    }
+    this.hungerStage = stage;
   }
 
   // Level events tweak the rules for one level so no two levels play the same.
@@ -368,6 +406,7 @@ export class Game {
     if (this.state !== 'play') return;
 
     this.levelTime += dt;
+    this.updateHunger(dt);
     if (!this.demo) this.score += dt * 5 * this.level * this.nerveMult;
     if (this.nerve > 0) {
       this.nerveT -= dt;
@@ -596,18 +635,18 @@ export class Game {
       }
       if (s.lunge === 'windup') {
         s.lungeT -= dt;
-        if (s.lungeT <= 0) { s.lunge = 'go'; s.fast = p.lungeSteps; s.acc = 0; this.sfx('lunge'); }
+        if (s.lungeT <= 0) { s.lunge = 'go'; s.fast = p.lungeSteps + (s.nemesis ? 1 + Math.floor(s.nemesis.rank / 2) : 0); s.acc = 0; this.sfx('lunge'); }
         continue;
       }
       if (s.lunge === 'none') s.lungeCd -= dt;
-      s.interval = s.lunge === 'go' ? p.step * 0.45 : p.step * (s.sick ? 1.25 : 1);
+      s.interval = (s.lunge === 'go' ? p.step * 0.45 : p.step * (s.sick ? 1.25 : 1)) / (this.hunger * (s.speedMul || 1));
       s.acc += dt;
       if (s.acc >= s.interval) {
         s.acc = Math.min(s.acc - s.interval, s.interval * 0.5);
         this.stepSnake(s);
         if (this.state !== 'play') return;
         if (s.dead) continue;
-        if (s.lunge === 'go' && --s.fast <= 0) { s.lunge = 'none'; s.lungeCd = p.lungeCd; }
+        if (s.lunge === 'go' && --s.fast <= 0) { s.lunge = 'none'; s.lungeCd = p.lungeCd / this.hunger / (s.nemesis ? 1 + 0.3 * s.nemesis.rank : 1); }
         else if (s.lunge === 'none' && p.lunge && s.lungeCd <= 0 && !this.decoy && s.stun <= 0 && !s.sick) {
           const dist = manhattan(s.body[0], this.apple);
           if (dist >= 2 && dist <= 4 && this.apple.invuln <= 0) {
@@ -638,7 +677,9 @@ export class Game {
   smellsRot(s) {
     const a = this.apple;
     if (a.rot <= 0 || s.lunge === 'go' || s.sick) return false;
-    if (this.time - a.rotAt < this.params.smell + this.stats.scent) return false;
+    // A nemesis has learned the trick: it smells rot sooner with every rank.
+    const nose = s.nemesis ? Math.max(0.3, 1 - 0.15 * s.nemesis.rank) : 1;
+    if (this.time - a.rotAt < this.params.smell * nose + this.stats.scent) return false;
     return manhattan(s.body[0], a) <= 3;
   }
 
@@ -652,7 +693,7 @@ export class Game {
     // already right on your tail. Older ones are walls the snake steers around.
     // A lunging snake planned its strike: it sees every bramble that was there
     // when its "!" appeared, and only thorns dropped in reply can catch it.
-    const react = this.params.thornReact;
+    const react = this.params.thornReact * (s.nemesis ? Math.max(0.4, 1 - 0.12 * s.nemesis.rank) : 1);
     const lunging = s.lunge === 'windup' || s.lunge === 'go';
     for (const [k, b] of this.brambles) {
       if (lunging ? b.born <= s.lungeAt : b.age >= react) g[k] = 1;
@@ -716,7 +757,7 @@ export class Game {
 
     // Instinct: never squeeze into a tiny dead end, not even for a bite. A
     // bramble fortress buys you time; it doesn't trap the snake for free.
-    const instinct = Math.min(s.body.length + s.grow, 2 + Math.floor(this.level / 2));
+    const instinct = Math.min(s.body.length + s.grow, s.nemesis ? 99 : 2 + Math.floor(this.level / 2));
     const roomy = safe.filter(o => this.flood(o.x, o.y, blocked, instinct) >= instinct);
     const opts = roomy.length ? roomy : safe;
 
@@ -741,7 +782,8 @@ export class Game {
 
     const fi = this.bfsFirst(h, target, blocked);
     let choice = fi >= 0 ? opts.find(o => o.d === DIRS4[fi]) : null;
-    if (choice && Math.random() < p.smart) {
+    // A nemesis always checks it won't trap itself.
+    if (choice && (s.nemesis || Math.random() < p.smart)) {
       const need = s.body.length + s.grow + 2;
       if (this.flood(choice.x, choice.y, blocked, need) < need) choice = null;
     }
@@ -824,7 +866,7 @@ export class Game {
     s.sickT = 0;
     s.grow = 0;
     // Wither over a few seconds (longer on later levels), whatever its length.
-    const sickFor = 5 + 0.4 * Math.min(this.level, 15);
+    const sickFor = (5 + 0.4 * Math.min(this.level, 15)) * (s.nemesis ? 1 + 0.3 * s.nemesis.rank : 1);
     s.witherEvery = sickFor / Math.max(1, s.body.length - 3);
     s.stun = 0.7;
     s.confused = 0.7;
@@ -905,13 +947,16 @@ export class Game {
   }
 
   killSnake(s, cause, nx, ny) {
+    const lunging = s.lunge === 'go';
     s.dead = true;
     s.deadT = 0;
     s.cause = cause;
     s.lunge = 'none';
     let pts = Math.round(250 * this.level * KILL_MULT[cause] * this.nerveMult * (s.golden ? 3 : 1));
     let text = s.golden ? 'GOLDEN ' + KILL_TEXT[cause] : KILL_TEXT[cause];
-    if (this.time - this.lastKill < 2.5) { pts *= 2; text = 'DOUBLE KO!'; }
+    const double = this.time - this.lastKill < 2.5;
+    if (double) { pts *= 2; text = 'DOUBLE KO!'; }
+    if (s.nemesis) text = 'NEMESIS DOWN!';
     this.lastKill = this.time;
     if (!this.demo) {
       this.score += pts;
@@ -927,7 +972,15 @@ export class Game {
       this.addStars(10);
       this.burst(hx + 0.5, hy + 0.5, { n: 30, colors: ['#ffd700', '#fff59d', '#ffffff'], speed: 5, life: 1, size: 0.14, type: 'star' });
     }
-    this.emit('kill', { cause, pts });
+    if (s.nemesis && !this.demo) {
+      const bounty = nemesisBounty(s.nemesis);
+      this.addStars(bounty);
+      this.nemesisBeaten = true;
+      this.floater(this.cols / 2, 2.2, `${nemesisName(s.nemesis)} is beaten! +${bounty}\u2605`, '#ffd54f', 0.75, 2.6);
+      this.burst(hx + 0.5, hy + 0.5, { n: 40, colors: ['#ff5252', '#ffd700', '#ffffff'], speed: 6, life: 1.1, size: 0.15, type: 'star' });
+      this.emit('nemesis', { ...s.nemesis, bounty });
+    }
+    this.emit('kill', { cause, pts, lunging, double, golden: !!s.golden, nemesis: !!s.nemesis });
     if (this.snakes.every(o => o.dead)) {
       this.state = 'clear';
       this.clearT = 2.4;
@@ -973,6 +1026,9 @@ export class Game {
     }
     this.bites--;
     this.levelBites++;
+    // A fed snake calms down a little.
+    this.hungerT = Math.max(0, this.hungerT - 8);
+    this.updateHunger(0);
     if (this.nerve > 0) { this.nerve = 0; this.emit('nerve', 0); }
     if (this.demo) this.bites = Math.max(1, this.bites);
     if (s.sick) {
@@ -992,6 +1048,7 @@ export class Game {
     this.sfx('crunch');
     this.emit('bite');
     if (this.bites <= 0) {
+      this.eatenBy = { species: s.species.id, first: s.species.name.split(' ')[0], nemesis: !!s.nemesis };
       this.state = 'dying';
       a.dying = 0.001;
       this.sfx('lose');

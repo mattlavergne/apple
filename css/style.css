@@ -483,3 +483,72 @@ html, body { overscroll-behavior: none; }
   .grade-stamp { width: 64px; height: 64px; font-size: 2.4rem; border-radius: 16px; }
   .daily-card b { font-size: 1rem; }
 }
+
+/* ================================================================ v3: hunger, nemesis, contracts */
+.hunger {
+  position: relative; overflow: hidden;
+  padding: 1px 10px; border-radius: 999px;
+  background: #fff3e0; border: 2px solid var(--ink);
+  font-size: 0.75rem; line-height: 1.4; min-width: 74px; text-align: center;
+}
+.hunger b { position: relative; z-index: 1; letter-spacing: 0.06em; }
+.hunger i {
+  position: absolute; left: 0; top: 0; bottom: 0; width: calc(var(--t, 0) * 100%);
+  background: linear-gradient(90deg, #ffcc80, #ff9800); transition: width 0.25s linear;
+}
+.hunger.frenzy { animation: pulse 0.25s infinite alternate; }
+.hunger.frenzy i { background: linear-gradient(90deg, #ff7043, #d50000); }
+.hunger.frenzy b { color: #fff; }
+
+.wanted {
+  display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 12px; text-align: left;
+  border: 3px dashed #8d1c1c; border-radius: 14px;
+  background: repeating-linear-gradient(-45deg, #fff4e6, #fff4e6 10px, #ffeedd 10px, #ffeedd 20px);
+}
+.w-skull { font-size: 1.6rem; }
+.w-text { flex: 1; display: flex; flex-direction: column; line-height: 1.2; }
+.w-text b { color: #8d1c1c; }
+.w-text small { font-size: 0.75rem; opacity: 0.8; }
+.w-bounty { display: flex; flex-direction: column; align-items: flex-end; font-weight: 700; font-size: 1.1rem; color: #b26a00; line-height: 1.1; }
+.w-bounty small { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; opacity: 0.7; }
+
+.contracts { margin-top: 10px; text-align: left; border: 2px solid rgba(58, 31, 43, 0.2); border-radius: 14px; padding: 8px 10px; background: #fff; }
+.c-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.c-head small { font-size: 0.75rem; opacity: 0.7; }
+.contract { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 0.85rem; }
+.ct-icon { width: 1.4em; text-align: center; }
+.ct-text { flex: 1; position: relative; padding-bottom: 4px; }
+.ct-text i { position: absolute; left: 0; bottom: 0; height: 3px; width: var(--p, 0%); background: var(--green); border-radius: 2px; }
+.ct-text::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(58, 31, 43, 0.1); border-radius: 2px; z-index: -1; }
+.ct-reward { font-size: 0.75rem; font-weight: 600; opacity: 0.75; white-space: nowrap; }
+.contract.done { opacity: 0.6; }
+.contract.done .ct-text { text-decoration: line-through; }
+
+.over-nemesis {
+  margin: 8px 0 4px; padding: 8px 12px; border-radius: 12px;
+  background: #fff0f0; border: 2px solid #c62828; color: #6d0f0f; font-size: 0.95rem; line-height: 1.35;
+}
+.banner-foe small { font-weight: 400; font-size: 0.8rem; opacity: 0.85; }
+
+@media (max-width: 640px) {
+  .hunger { font-size: 0.6rem; min-width: 52px; padding: 0 6px; }
+  .contract { font-size: 0.78rem; }
+  #logo-apple { width: 84px; height: 84px; }
+}
+
+.hunger { white-space: nowrap; }
+.c-head { width: 100%; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+.c-caret { display: inline-block; transition: transform 0.2s; }
+.contracts:not(.open) .contract { display: none; }
+.contracts:not(.open) .c-head { margin-bottom: 0; }
+.contracts.open .c-caret { transform: rotate(180deg); }
+@media (max-width: 640px) {
+  .title-wrap { padding: 8px 16px 14px; }
+  .tagline { font-size: 0.95rem; margin: 6px 0 10px; }
+  .modes { margin-bottom: 10px; }
+  .daily-card { margin-top: 10px; padding: 8px 12px; }
+  .wanted { padding: 6px 10px; gap: 8px; }
+  .w-text small { display: none; }
+  .w-skull { font-size: 1.3rem; }
+  .row { margin-top: 10px; }
+}
