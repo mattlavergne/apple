@@ -359,8 +359,56 @@ export class Renderer {
     ctx.restore();
 
     for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
-      if (g.rocks[y * cols + x]) this.drawObstacle(ctx, x, y, W.obstacle, rnd);
+      const r = g.rocks[y * cols + x];
+      if (r === 2) this.drawHedge(ctx, x, y, mulberry32(x * 7919 + y * 104729), W);
+      else if (r) this.drawObstacle(ctx, x, y, W.obstacle, rnd);
     }
+  }
+
+  // Overgrown hedge from a closing ring: a dense, dark, thorny wall.
+  drawHedge(ctx, x, y, rnd, W) {
+    ctx.save();
+    ctx.fillStyle = W.dark ? '#1b3a2a' : '#2f5d22';
+    ctx.fillRect(x - 0.02, y - 0.02, 1.04, 1.04);
+    const greens = W.dark ? ['#24503a', '#2e6347'] : ['#3d7a2a', '#4f8f35', '#356b25'];
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = greens[Math.floor(rnd() * greens.length)];
+      ctx.beginPath();
+      ctx.arc(x + 0.2 + rnd() * 0.6, y + 0.2 + rnd() * 0.6, 0.22 + rnd() * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(30, 15, 5, 0.55)';
+    ctx.lineWidth = 0.035;
+    for (let i = 0; i < 3; i++) {
+      const tx = x + 0.15 + rnd() * 0.7, ty = y + 0.15 + rnd() * 0.7, a = rnd() * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx + Math.cos(a) * 0.14, ty + Math.sin(a) * 0.14); ctx.stroke();
+    }
+    if (rnd() < 0.3) {
+      ctx.fillStyle = '#e53950';
+      ctx.beginPath(); ctx.arc(x + 0.3 + rnd() * 0.4, y + 0.3 + rnd() * 0.4, 0.05, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Flashing warning on the ring that's about to overgrow, with vines creeping in.
+  drawHedgeWarning(ctx, g, t) {
+    const k = 1 - g.ringWarnT / 3;           // 0 -> 1 as the hedge closes
+    const pulse = 0.5 + 0.5 * Math.sin(t * (8 + k * 10));
+    ctx.save();
+    for (let y = 0; y < g.rows; y++) for (let x = 0; x < g.cols; x++) {
+      const e = g.edgeDist(x, y);
+      if (e < g.ring || e >= g.ringNext || g.rocks[g.idx(x, y)]) continue;
+      ctx.fillStyle = `rgba(90, 140, 40, ${0.15 + 0.35 * k * pulse})`;
+      ctx.fillRect(x, y, 1, 1);
+      ctx.strokeStyle = `rgba(46, 93, 34, ${0.4 + 0.5 * k})`;
+      ctx.lineWidth = 0.06;
+      ctx.beginPath();
+      const s = (x * 7 + y * 13) % 5;
+      ctx.moveTo(x + 0.1, y + 0.5 + Math.sin(s) * 0.2);
+      ctx.quadraticCurveTo(x + 0.5, y + 0.5 - 0.35 * k, x + 0.1 + 0.8 * k, y + 0.5 + Math.cos(s) * 0.2);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   drawObstacle(ctx, x, y, type, rnd) {
@@ -464,6 +512,7 @@ export class Renderer {
     this.toCells(ctx, sx, sy);
     const t = g.time;
 
+    if (g.ringWarnT > 0) this.drawHedgeWarning(ctx, g, t);
     for (const b of g.brambles.values()) this.drawBramble(ctx, b, t, g.params.thornReact);
     for (const p of g.pickups) this.drawPickup(ctx, p, t);
     if (g.decoy) this.drawDecoy(ctx, g.decoy, skin, t);

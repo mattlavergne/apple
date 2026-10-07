@@ -477,7 +477,7 @@ function onEvent(name, data, g) {
     case 'kill':
       save.stats.snakes++;
       buzz([25, 40, 25]);
-      if (data.cause === 'wall' || data.cause === 'rock') contractProgress('walls', 1);
+      if (data.cause === 'wall' || data.cause === 'rock' || data.cause === 'hedge') contractProgress('walls', 1);
       if (data.cause === 'self') contractProgress('self', 1);
       if (data.cause === 'tangle') contractProgress('tangle', 1);
       if (data.cause === 'poison') contractProgress('poison', 1);
@@ -492,6 +492,9 @@ function onEvent(name, data, g) {
       break;
     case 'hunger':
       buzz(data === 2 ? [40, 30, 40, 30, 40] : 30);
+      break;
+    case 'hedge':
+      buzz([90, 40, 90]);
       break;
     case 'bite':
       hud.bites.classList.remove('hit'); void hud.bites.offsetWidth; hud.bites.classList.add('hit');
