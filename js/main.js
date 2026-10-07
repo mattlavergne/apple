@@ -1,11 +1,12 @@
 // Wires the engine, renderer, audio and DOM screens together.
-import { Game, GRADE_STARS } from './engine.js';
+import { Game, GRADE_STARS, mulberry32 } from './engine.js';
 import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
 import { Input } from './input.js';
 import { load, store } from './save.js';
 import {
   WORLDS, MODES, UPGRADES, SKINS, TIPS, GENERIC_TIPS, CORE_UNLOCK_LEVEL, EVENTS, GRADE_COLORS,
+  CONTRACTS, CONTRACT_REWARD, CONTRACT_BONUS, nemesisName, nemesisBounty,
 } from './config.js';
 
 const $ = sel => document.querySelector(sel);
@@ -18,6 +19,8 @@ const input = new Input();
 const skin = () => SKINS.find(s => s.id === save.skin) || SKINS[0];
 save.settings = { controls: 'swipe', haptics: true, ...save.settings };
 save.daily = { day: '', best: null, attempts: 0, streak: 0, lastDay: '', ...(save.daily || {}) };
+save.nemesis = save.nemesis || null;
+save.stats.nemesesBeaten = save.stats.nemesesBeaten || 0;
 
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const canVibrate = typeof navigator.vibrate === 'function';
@@ -91,6 +94,7 @@ function setPlaying(on) {
 
 function goTitle() {
   screen = 'title';
+  audio.setIntensity(1);
   setPlaying(false);
   hideBanner();
   renderTitle();
@@ -124,7 +128,7 @@ function startRun(kind = runKind) {
       persist();
       game.newRun({ mode: 'classic', upgrades: {}, seed: today().seed, ...gridFor() });
     } else {
-      game.newRun({ mode: save.mode, upgrades: save.upgrades, ...gridFor() });
+      game.newRun({ mode: save.mode, upgrades: save.upgrades, nemesis: save.nemesis, ...gridFor() });
     }
   });
 }
@@ -177,6 +181,70 @@ function renderTitle() {
   $('#daily-best').textContent = d.best ? `Today: Lv ${d.best.level} \u00b7 ${d.best.score.toLocaleString()}` : 'Not played today';
   $('#daily-sub').textContent = d.best ? `${d.attempts} ${d.attempts === 1 ? 'try' : 'tries'} \u00b7 beat your score!` : 'Same levels for everyone today';
   $('#btn-daily').classList.toggle('done', !!d.best);
+  renderContracts();
+  const w = $('#wanted');
+  w.classList.toggle('hidden', !save.nemesis);
+  if (save.nemesis) {
+    const n = save.nemesis;
+    w.innerHTML = `<span class="w-skull">\u2620</span><span class="w-text"><b>${nemesisName(n)}</b><small>${'\u2605'.repeat(n.rank)} \u00b7 ate you ${n.wins}\u00d7 \u00b7 lurking somewhere in levels 3\u20136</small></span><span class="w-bounty">${nemesisBounty(n)}\u2605<small>bounty</small></span>`;
+  }
+}
+
+// ------------------------------------------------------------------ daily contracts
+function contracts() {
+  const t = today();
+  if (!save.contracts || save.contracts.day !== t.key) {
+    const rnd = mulberry32(t.seed * 7 + 3);
+    const items = [0, 1, 2].map(tier => {
+      const pool = CONTRACTS.filter(c => c.tier === tier);
+      const c = pool[Math.floor(rnd() * pool.length)];
+      return { id: c.id, target: c.n[Math.floor(rnd() * c.n.length)], progress: 0, done: false };
+    });
+    save.contracts = { day: t.key, items, bonus: false };
+    persist();
+  }
+  return save.contracts;
+}
+
+function contractProgress(id, value, max = false) {
+  const cs = contracts();
+  for (const [i, it] of cs.items.entries()) {
+    if (it.id !== id || it.done) continue;
+    it.progress = max ? Math.max(it.progress, value) : it.progress + value;
+    if (it.progress >= it.target) {
+      it.progress = it.target;
+      it.done = true;
+      const reward = CONTRACT_REWARD[i];
+      save.stars += reward;
+      save.stats.starsEarned += reward;
+      const c = CONTRACTS.find(x => x.id === it.id);
+      toast(`\u2705 Contract done: ${c.text(it.target)} +${reward}\u2605`);
+      audio.play('grade');
+      buzz([20, 30, 20]);
+    }
+  }
+  if (!cs.bonus && cs.items.every(it => it.done)) {
+    cs.bonus = true;
+    save.stars += CONTRACT_BONUS;
+    save.stats.starsEarned += CONTRACT_BONUS;
+    setTimeout(() => toast(`\ud83c\udf81 All 3 contracts done! +${CONTRACT_BONUS}\u2605 bonus`), 2400);
+  }
+  persist();
+}
+
+// Contracts start collapsed on small screens so the title screen fits.
+let contractsOpen = !matchMedia('(max-width: 640px)').matches;
+function renderContracts() {
+  const cs = contracts();
+  const done = cs.items.filter(it => it.done).length;
+  const el = $('#contracts');
+  el.classList.toggle('open', contractsOpen);
+  el.innerHTML = `<button class="c-head" aria-expanded="${contractsOpen}"><b>Today\u2019s contracts</b><small>${done}/3 done${cs.bonus ? ' \u00b7 bonus claimed' : ` \u00b7 all 3: +${CONTRACT_BONUS}\u2605`} <span class="c-caret">\u25be</span></small></button>` +
+    cs.items.map((it, i) => {
+      const c = CONTRACTS.find(x => x.id === it.id);
+      const pct = Math.round(it.progress / it.target * 100);
+      return `<div class="contract${it.done ? ' done' : ''}"><span class="ct-icon">${it.done ? '\u2705' : c.icon}</span><span class="ct-text">${c.text(it.target)}<i style="--p:${pct}%"></i></span><span class="ct-reward">${it.done ? 'done' : `${it.progress}/${it.target} \u00b7 +${CONTRACT_REWARD[i]}\u2605`}</span></div>`;
+    }).join('');
 }
 
 let toastTimer = null;
@@ -274,7 +342,7 @@ function openOrchard(from) {
 // ------------------------------------------------------------------ HUD
 const hud = {
   level: $('#hud-level'), world: $('#hud-world'), score: $('#hud-score'), stars: $('#hud-stars'),
-  bites: $('#hud-bites'), thorn: $('#thorn-count'),
+  bites: $('#hud-bites'), thorn: $('#thorn-count'), hunger: $('#hud-hunger'),
   nerve: $('#hud-nerve'), nerveX: $('#hud-nerve-x'), nerveBar: $('#hud-nerve-bar'), event: $('#hud-event'),
   ab: Object.fromEntries($$('.ability').map(b => [b.dataset.ab, b])),
   last: {},
@@ -337,6 +405,13 @@ function updateHud() {
     if (n > 0) { hud.nerve.classList.remove('bump'); void hud.nerve.offsetWidth; hud.nerve.classList.add('bump'); }
   });
   setOnce('nerveT', Math.round(Math.max(0, g.nerveT) / 4 * 50), v => hud.nerve.style.setProperty('--t', g.nerve ? v / 50 : 0));
+  setOnce('hunger', Math.round(g.hunger * 50), () => {
+    const p = g.params;
+    hud.hunger.style.setProperty('--t', (g.hunger - 1) / (p.hungerCap - 1));
+    hud.hunger.classList.toggle('hungry', g.hungerStage === 1);
+    hud.hunger.classList.toggle('frenzy', g.hungerStage === 2);
+    audio.setIntensity(screen === 'play' ? g.hunger : 1);
+  });
   setOnce('event', g.event + '|' + g.level, () => {
     const ev = EVENTS[g.event];
     hud.event.classList.toggle('hidden', !ev && !g.daily);
@@ -354,6 +429,12 @@ function showBanner(g) {
   const foe = $('#banner-foe');
   foe.textContent = 'vs. ' + [...new Set(foes)].join(' & ');
   foe.classList.toggle('boss', p.boss);
+  const nem = g.snakes.find(s => s.nemesis);
+  if (nem) {
+    foe.innerHTML = `\u2620 NEMESIS: <b>${nemesisName(nem.nemesis)}</b> ${'\u2605'.repeat(nem.nemesis.rank)}<br><small>Bounty ${nemesisBounty(nem.nemesis)}\u2605. It remembers you.</small>`;
+    foe.classList.add('boss');
+    audio.play('nemesis');
+  }
   let tip = TIPS[g.level];
   if (!tip && g.level > 6) tip = GENERIC_TIPS[(g.level * 7) % GENERIC_TIPS.length];
   const ev = EVENTS[g.event];
@@ -361,6 +442,7 @@ function showBanner(g) {
   be.classList.toggle('hidden', !ev);
   if (ev) be.innerHTML = `${ev.icon} ${ev.name}<small>${ev.desc}</small>`;
   if (ev && !TIPS[g.level]) tip = '';
+  if (g.snakes.some(s => s.nemesis)) tip = '';
   $('#banner-tip').textContent = tip || '';
   $('#banner').classList.add('show');
   clearTimeout(bannerTimer);
@@ -377,7 +459,9 @@ function onEvent(name, data, g) {
     case 'level':
       showBanner(g);
       // Give players time to read a tip before the snake starts moving.
-      if ($('#banner-tip').textContent || g.event) g.countT = 4;
+      if ($('#banner-tip').textContent || g.event || g.snakes.some(s => s.nemesis)) g.countT = 4;
+      contractProgress('level', g.level, true);
+      contractProgress('deep', g.level, true);
       audio.startMusic(g.world, g.params.boss);
       break;
     case 'go':
@@ -388,20 +472,44 @@ function onEvent(name, data, g) {
       save.stars += data;
       save.stats.starsEarned += data;
       persist();
+      contractProgress('stars', data);
       break;
     case 'kill':
       save.stats.snakes++;
       buzz([25, 40, 25]);
+      if (data.cause === 'wall' || data.cause === 'rock') contractProgress('walls', 1);
+      if (data.cause === 'self') contractProgress('self', 1);
+      if (data.cause === 'tangle') contractProgress('tangle', 1);
+      if (data.cause === 'poison') contractProgress('poison', 1);
+      if (data.cause === 'thorns' && data.lunging) contractProgress('lunge', 1);
+      if (data.double) contractProgress('double', 1);
+      break;
+    case 'nemesis':
+      save.nemesis = null;
+      save.stats.nemesesBeaten++;
+      persist(true);
+      buzz([60, 40, 60, 40, 120]);
+      break;
+    case 'hunger':
+      buzz(data === 2 ? [40, 30, 40, 30, 40] : 30);
       break;
     case 'bite':
       hud.bites.classList.remove('hit'); void hud.bites.offsetWidth; hud.bites.classList.add('hit');
       buzz([80, 50, 80]);
       break;
     case 'nerve':
-      if (data > 0) { audio.playNear(data); buzz(12); }
+      if (data > 0) {
+        audio.playNear(data); buzz(12);
+        contractProgress('close', 1);
+        contractProgress('nerve', data, true);
+      }
       break;
     case 'quake':
       buzz([120, 40, 60]);
+      break;
+    case 'scratch':
+      buzz(30);
+      contractProgress('scratch', 1);
       break;
     case 'bump':
       // In swipe mode the apple rolls until it hits something, then waits.
@@ -413,6 +521,9 @@ function onEvent(name, data, g) {
       break;
     }
     case 'cleared':
+      if (!g.levelBites) contractProgress('unbitten', 1);
+      if (g.hungerStage === 2) contractProgress('frenzy', 1);
+      if (g.lastGrade === 'S') contractProgress('grade', 1);
       showPerks(g);
       break;
     case 'over':
@@ -468,6 +579,7 @@ function choosePerk(i) {
 
 function showGameOver(g) {
   screen = 'over';
+  audio.setIntensity(1);
   hideBanner();
   input.enabled = false;
   const score = Math.floor(g.score);
@@ -494,6 +606,26 @@ function showGameOver(g) {
     if (isBest) best.score = score;
     best.level = Math.max(best.level, g.level);
   }
+  // The snake that ate you holds a grudge.
+  const nemEl = $('#over-nemesis');
+  let nemMsg = '';
+  if (!g.daily && g.eatenBy) {
+    const by = g.eatenBy;
+    if (by.nemesis && save.nemesis) {
+      save.nemesis.rank = Math.min(5, save.nemesis.rank + 1);
+      save.nemesis.wins++;
+      nemMsg = `\u2620 ${by.first} got you again and is now <b>${nemesisName(save.nemesis)}</b>. Bounty: ${nemesisBounty(save.nemesis)}\u2605`;
+    } else if (!save.nemesis) {
+      save.nemesis = { species: by.species, first: by.first, rank: 1, wins: 1 };
+      nemMsg = `\u2620 <b>${nemesisName(save.nemesis)}</b> ate you. It\u2019s your nemesis now, and it\u2019ll be back. Bounty: ${nemesisBounty(save.nemesis)}\u2605`;
+    } else {
+      nemMsg = `\u2620 Your nemesis <b>${nemesisName(save.nemesis)}</b> is still out there.`;
+    }
+  } else if (g.nemesisBeaten) {
+    nemMsg = '\ud83c\udfc6 You beat your nemesis this run!';
+  }
+  nemEl.classList.toggle('hidden', !nemMsg);
+  nemEl.innerHTML = nemMsg;
   persist(true);
   lastRun = { daily: g.daily, num: today().num, level: g.level, score, grades: g.grades.slice(), nerve: g.nerveBest, kills: { ...g.kills }, mode: g.mode };
   $('#over-grades').textContent = g.grades.map(x => GRADE_EMOJI[x]).join('');
@@ -542,6 +674,12 @@ async function shareRun() {
 $('#btn-play').addEventListener('click', () => { audio.play('click'); startRun('normal'); });
 $('#btn-daily').addEventListener('click', () => { audio.play('click'); startRun('daily'); });
 $('#btn-share').addEventListener('click', () => shareRun());
+$('#contracts').addEventListener('click', e => {
+  if (!e.target.closest('.c-head')) return;
+  contractsOpen = !contractsOpen;
+  audio.play('click');
+  renderContracts();
+});
 $('#tgl-haptics').addEventListener('click', () => {
   save.settings.haptics = !save.settings.haptics;
   persist(); syncToggles();

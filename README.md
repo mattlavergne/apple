@@ -8,20 +8,21 @@ Pure HTML/CSS/JS with no build step and no dependencies. All graphics are drawn 
 
 - **Move** with the Arrow keys or WASD. On touch screens, drag anywhere on the field.
 - **Dash** (`Space`): zip a few tiles forward.
-- **Bramble** (`E`): drop a thorn bush behind you. Snakes that hit it are out.
-- **Hidden Rot** (`Q`, from level 3): secretly rot for a few seconds. A snake that bites you is poisoned. Older snakes can sometimes *sniff* the rot, so timing matters.
+- **Bramble** (`E`): drop a thorn bush behind you. Snakes take a moment to notice fresh thorns (they shimmer until spotted). A chasing snake that runs into fresh thorns gets scratched: stunned, dizzy and shorter. A **lunging** snake that hits thorns you dropped after its "!" is out. Old thorns are walls for building traps, and a trapped snake forced into them is out too. On levels 1–2 (and early Sprout levels) thorns always kill.
+- **Hidden Rot** (`Q`, from level 3): secretly rot for a few seconds (you move a bit slower while rotten). A snake that bites you gets **sick**: it gags, slows down, stops growing and lunging, and withers away over several seconds. If it bites a fresh apple first, it's cured, so keep away. Rot a sick snake again for an instant knockout. Snakes within 3 tiles smell rot after a moment, so trigger it at the last second. Lunging snakes can't smell anything. Rot starts each level half-charged.
 - **Decoy** (`R`): a shiny fake apple. Unlock it in the Orchard, or get it as a perk.
 - **Pause** with `P` or `Esc`.
 
-Snakes grow every few seconds, so time is on your side, but they also get smarter as you go:
+Snakes grow every few seconds and get **hungrier** the longer a level lasts: they speed up (HUNGRY at 1.3×, FRENZY at 1.6×, up to 1.9×), the music speeds up with them, and by FRENZY they're faster than you. Waiting it out isn't a strategy; setting traps is. Getting bitten calms them down a little. Sprout mode ramps at half speed and caps at 1.45×. Snakes also get smarter as you go:
 
 | Levels | Snake brain |
 |---|---|
-| 1–2 | Greedy: heads straight for you and can't see brambles |
+| All | Won't squeeze into a tiny dead end, not even to bite you (the safe pocket size grows with level) |
+| 1–2 | Greedy: heads straight for you. Thorns kill on contact |
 | 3+ | Pathfinding, plus a telegraphed **lunge** (watch for the red "!") |
-| 4+ | Can see brambles |
-| 6+ | Avoids dead ends more and more often |
-| 10+ | Can sometimes sniff hidden rot |
+| 1–10 | Notices fresh thorns faster each level (about 3 snake steps at level 1, about 1.5 by level 10) |
+| 6+ | Checks it won't trap itself more and more often |
+| 3+ | Smells active rot within 3 tiles, faster each level |
 
 Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, there's always more than one snake. The world theme changes every 5 levels: Orchard, Meadow, Desert, Frost, Moonlit Garden and Candy Kingdom.
 
@@ -35,6 +36,8 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 - **Nerve:** slipping right past a snake's nose (a *close call*) builds a combo that multiplies every point you earn, up to ×6. A lunging snake that just misses counts double, and big moments trigger a beat of slow motion. Playing safe lets it cool off, so careful players can survive while brave players chase the high scores.
 - **Grades:** every cleared level is graded S/A/B/C on speed, bites taken and peak Nerve, with bonus stars for good grades.
 - **Level events:** from level 3, most non-boss levels roll a twist: Star Shower, Thick Fog, Golden Snake, Earthquake, Mirror Twin, Hungry Hour, Tailwind or Bramble Bloom.
+- **Nemesis:** the snake that ends your run remembers you. It gets a name and title (*Vicky the Apple-Eater*) and ambushes a later run somewhere in levels 3–6 with a scar and a red glow. Each rank makes it smarter, a bit faster, quicker to lunge, quicker to smell rot and slower to wither. Every time it eats you again it ranks up (up to 5) and its bounty grows. Beat it to claim the bounty. Its WANTED poster sits on the title screen. Daily runs don't involve the nemesis.
+- **Daily Contracts:** three challenges a day (one easy, one medium, one hard), the same for everyone, e.g. "Scratch 3 snakes with fresh thorns", "Reach Nerve ×3", "Thorn a lunging snake". Each pays stars, plus a bonus for all three.
 - **Daily Run:** one seeded run per day. Everyone gets the same layouts, events and power-up offers, and Orchard upgrades are switched off so it's fair. Your first Daily each day pays streak-boosted stars, and the result can be shared as an emoji card.
 
 ## Phones
@@ -65,6 +68,12 @@ python3 -m http.server 8000
 ```
 
 Add `?debug` to the URL to expose `window.__game` (e.g. `__game.level = 15; __game.startLevel()`).
+
+Balance checks (headless bots, run per level):
+- `node tools/camper.mjs [trials] [reaction]`: "drop a bramble and wait behind it". It should only pay off on the first couple of levels.
+- `node tools/rotcamper.mjs [trials]`: "stand still and rot when the snake is close". It should almost never clear a level.
+- `node tools/rotkite.mjs [trials]`: rot at the right moment, then run until the snake withers. This is the skill play, and it should usually work but take a while.
+- `node tools/nemesis.mjs [trials] [level]`: how often the general bot beats a normal snake versus a nemesis of rank 1–5.
 
 `node tools/sim.mjs [runs] [mode] [dailySeed]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
 

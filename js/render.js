@@ -464,7 +464,7 @@ export class Renderer {
     this.toCells(ctx, sx, sy);
     const t = g.time;
 
-    for (const b of g.brambles.values()) this.drawBramble(ctx, b, t);
+    for (const b of g.brambles.values()) this.drawBramble(ctx, b, t, g.params.thornReact);
     for (const p of g.pickups) this.drawPickup(ctx, p, t);
     if (g.decoy) this.drawDecoy(ctx, g.decoy, skin, t);
     if (g.ghost) this.drawGhost(ctx, g, skin, t);
@@ -484,7 +484,7 @@ export class Renderer {
     this.drawOverlayText(ctx, g);
   }
 
-  drawBramble(ctx, b, t) {
+  drawBramble(ctx, b, t, react = 0) {
     const grow = easeOutBack(clamp01(b.age / 0.3));
     const left = b.life - b.age;
     const wither = left < 2 ? left / 2 : 1;
@@ -516,6 +516,19 @@ export class Renderer {
     ctx.beginPath(); ctx.arc(-0.08, -0.18, 0.08, 0, TAU); ctx.fill();
     ctx.fillStyle = '#e53950';
     for (const [x, y] of [[0.12, -0.05], [-0.1, 0.12], [0.05, 0.2]]) { ctx.beginPath(); ctx.arc(x, y, 0.055, 0, TAU); ctx.fill(); }
+    // Fresh thorns that snakes haven't noticed yet shimmer, fading as they're spotted.
+    if (b.age < react) {
+      const k = 1 - b.age / react;
+      ctx.strokeStyle = `rgba(255,255,255,${0.85 * k})`;
+      ctx.lineWidth = 0.06;
+      ctx.beginPath(); ctx.arc(0, 0, 0.42 + (1 - k) * 0.15, 0, TAU); ctx.stroke();
+      ctx.fillStyle = `rgba(255,255,255,${k})`;
+      for (let i = 0; i < 3; i++) {
+        const a = t * 5 + i * 2.1;
+        starPath(ctx, Math.cos(a) * 0.38, Math.sin(a) * 0.38, 0.08, 0.35, 4);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 
@@ -604,6 +617,11 @@ export class Renderer {
 
     let bodyCol = sp.body, darkCol = sp.dark, bellyCol = sp.belly, patCol = sp.patternColor;
     if (s.golden) { bodyCol = '#f6c21c'; darkCol = '#9a6b00'; bellyCol = '#fff5c2'; patCol = '#d99a00'; }
+    if (s.sick && !s.dead) {
+      // Sickly green with a purple bruise that pulses as it withers.
+      const p = 0.5 + 0.5 * Math.sin(t * 6);
+      bodyCol = p > 0.5 ? '#9fbf5a' : '#95b552'; darkCol = '#5b3f7a'; bellyCol = '#e6ee9c'; patCol = '#8e44ad';
+    }
     if (s.dead && s.deadT < 0.7 && Math.floor(s.deadT * 14) % 2) { bodyCol = '#ffffff'; bellyCol = '#ffffff'; }
     else if (s.dead && s.cause === 'poison') { bodyCol = '#8fb35a'; darkCol = '#5b4a7a'; bellyCol = '#c5e1a5'; }
     else if (s.dead) { bodyCol = '#a0a0a0'; darkCol = '#606060'; bellyCol = '#d0d0d0'; }
@@ -635,6 +653,14 @@ export class Renderer {
       // A warm, breathing halo marks the snake worth 3x.
       ctx.shadowColor = 'rgba(255, 200, 0, 0.9)';
       ctx.shadowBlur = (16 + Math.sin(t * 4) * 6) * this.dpr;
+    } else if (s.nemesis && !s.dead) {
+      // Your nemesis smoulders.
+      ctx.shadowColor = 'rgba(213, 0, 0, 0.95)';
+      ctx.shadowBlur = (14 + Math.sin(t * 7) * 6) * this.dpr;
+    } else if (g.hungerStage === 2 && !s.dead && !s.sick) {
+      // FRENZY: a hot, flickering outline.
+      ctx.shadowColor = 'rgba(255, 87, 34, 0.85)';
+      ctx.shadowBlur = (8 + Math.random() * 6) * this.dpr;
     }
     stroke(darkCol, 0.1);
     ctx.shadowBlur = 0;
@@ -773,6 +799,19 @@ export class Renderer {
       ctx.fillStyle = 'rgba(255,255,255,0.9)';
       ctx.beginPath(); ctx.arc(ex + lx * 0.05 - 0.03, ey + ly * 0.05 - 0.03, 0.022, 0, TAU); ctx.fill();
     }
+    if (s.nemesis && !s.dead) {
+      // Battle scar across the brow.
+      ctx.strokeStyle = 'rgba(40, 0, 0, 0.85)';
+      ctx.lineWidth = 0.05;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-0.05, -0.36); ctx.lineTo(0.3, -0.02); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255, 220, 220, 0.6)';
+      ctx.lineWidth = 0.02;
+      for (const k of [0.25, 0.5, 0.75]) {
+        const x = -0.05 + 0.35 * k, y = -0.36 + 0.34 * k;
+        ctx.beginPath(); ctx.moveTo(x - 0.05, y + 0.05); ctx.lineTo(x + 0.05, y - 0.05); ctx.stroke();
+      }
+    }
     ctx.restore();
 
     // Head-up markers drawn upright.
@@ -791,6 +830,7 @@ export class Renderer {
     }
     if (windup) this.bubbleText(ctx, mx, my - 0.25, '!', '#ff1744', 0.7);
     else if (s.confused > 0) this.bubbleText(ctx, mx, my - 0.25, '?', '#ffb300', 0.6);
+    else if (s.nemesis && !s.dead) this.bubbleText(ctx, mx, my - 0.2, '\u2620', '#b71c1c', 0.5);
   }
 
   // Text is drawn in pixel space: some browsers mis-render sub-pixel font sizes.
@@ -1081,6 +1121,16 @@ export class Renderer {
       ctx.fillStyle = text === 'GO!' ? '#7ee081' : '#ffffff';
       ctx.fillText(text, cx, cy);
       ctx.globalAlpha = 1;
+    }
+    if (!g.demo && g.state === 'play' && g.hungerStage > 0) {
+      // Heat creeping in from the edges as the snakes get hungrier.
+      const p = 0.5 + 0.5 * Math.sin(g.time * (g.hungerStage === 2 ? 9 : 4));
+      const a = g.hungerStage === 2 ? 0.16 + p * 0.1 : 0.06 + p * 0.05;
+      const grad = ctx.createRadialGradient(this.w / 2, this.h / 2, Math.min(this.w, this.h) * 0.4, this.w / 2, this.h / 2, Math.max(this.w, this.h) * 0.72);
+      grad.addColorStop(0, 'rgba(255,120,0,0)');
+      grad.addColorStop(1, `rgba(255,${g.hungerStage === 2 ? 60 : 140},0,${a})`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, this.w, this.h);
     }
     if (!g.demo && g.bites === 1 && (g.state === 'play' || g.state === 'countdown')) {
       const p = 0.5 + 0.5 * Math.sin(g.time * 5);

@@ -3,7 +3,12 @@
 let ctx = null, master, sfxBus, musicBus;
 let sfxOn = true, musicOn = true;
 let noiseBuf = null;
-let musicTimer = null, nextNoteTime = 0, step = 0, song = null;
+let musicTimer = null, nextNoteTime = 0, step = 0, song = null, tempoMul = 1;
+
+// The music speeds up with the snakes' hunger (1 = calm).
+export function setIntensity(hunger) {
+  tempoMul = 1 + Math.max(0, hunger - 1) * 0.5;
+}
 
 function ensure() {
   if (ctx) return ctx;
@@ -69,6 +74,8 @@ const SFX = {
   lose: () => [392, 330, 262, 196].forEach((f, i) => tone(f, 0.3, { type: 'triangle', vol: 0.3, delay: 0.2 + i * 0.16 })),
   count: () => tone(523, 0.12, { type: 'square', vol: 0.12 }),
   go: () => tone(1047, 0.25, { type: 'square', vol: 0.14 }),
+  frenzy: () => { noise(0.6, { vol: 0.35, filter: 'highpass', freq: 2500 }); [196, 233, 277, 330].forEach((f, i) => tone(f, 0.18, { type: 'sawtooth', vol: 0.08, delay: i * 0.07 })); },
+  nemesis: () => [110, 104, 98].forEach((f, i) => tone(f, 0.5, { type: 'sawtooth', vol: 0.14, delay: i * 0.25 })),
   quake: () => { noise(0.9, { vol: 0.6, filter: 'lowpass', freq: 220, sweep: 60 }); tone(55, 0.8, { type: 'sawtooth', vol: 0.12, slide: 35 }); },
   grade: () => [784, 1047, 1568].forEach((f, i) => tone(f, 0.25, { type: 'square', vol: 0.12, delay: i * 0.08 })),
   buy: () => [659, 880, 1319].forEach((f, i) => tone(f, 0.15, { type: 'square', vol: 0.12, delay: i * 0.06 })),
@@ -117,7 +124,7 @@ function makeSong(world, boss) {
 
 function schedule() {
   if (!musicOn) { nextNoteTime = ctx.currentTime + 0.1; return; }
-  const spb = 60 / song.tempo / 2; // eighth notes
+  const spb = 60 / (song.tempo * tempoMul) / 2; // eighth notes
   while (nextNoteTime < ctx.currentTime + 0.15) {
     const bar = Math.floor(step / 8) % 4;
     const chord = song.root + PROG[bar];

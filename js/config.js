@@ -65,12 +65,21 @@ export function levelParams(level, mode) {
     growEvery: Math.max(1.1, 2.6 - 0.09 * (L - 1)) * m.growMult,
     ai: eff <= 2 ? 'greedy' : 'bfs',
     smart: eff >= 6 ? Math.min(0.95, (eff - 5) * 0.14) : 0,
-    seesThorns: eff >= 4,
+    // Seconds before a fresh bramble is noticed. ~3 snake steps at level 1,
+    // ~1.5 by level 10.
+    thornReact: Math.max(0.22, 0.72 - 0.055 * (eff - 1)) * (mode === 'sprout' ? 1.35 : 1),
+    // Early levels (before snakes learn to lunge) let thorns kill outright.
+    thornsKill: eff <= 2 || (mode === 'sprout' && L < 6),
     lunge: eff >= 3 && !(mode === 'sprout' && L < 6),
     lungeCd: Math.max(2.4, 6.5 - 0.25 * L),
     lungeSteps: 4 + Math.floor(L / 6),
-    sniff: eff >= 10 ? Math.min(0.8, 0.4 + 0.05 * (eff - 10)) : 0,
+    // Seconds before a snake within 3 tiles smells active rot.
+    smell: Math.max(0.3, 1.0 - 0.07 * Math.max(0, eff - 3)),
     startLen: 4 + Math.floor(L / 3),
+    // Hunger: snakes speed up the longer a level lasts (x faster per second),
+    // so waiting it out stops being safe. Sprout stays gentle.
+    hungerRate: (0.011 + 0.0006 * Math.min(L, 20)) * (mode === 'sprout' ? 0.5 : mode === 'core' ? 1.3 : 1),
+    hungerCap: mode === 'sprout' ? 1.45 : 1.9,
     rockClusters: Math.min(9, 1 + Math.floor(L / 2)),
   };
 }
@@ -83,13 +92,13 @@ export function speciesFor(level, i) {
 }
 
 export const TIPS = {
-  1: 'Move with the Arrow keys or WASD. Lead the snake into a wall, a rock, or its own tail!',
-  2: 'Drop a bramble behind you (E). Young snakes can’t see brambles. Ouch! And slipping right past a snake’s nose builds NERVE, which multiplies your score.',
-  3: 'NEW: Hidden Rot (Q)! Go secretly rotten. If a snake bites you while you’re rotten, it’s POISONED. But watch out: snakes now LUNGE when they’re close. Dash with Space!',
-  4: 'Snakes can see brambles now. Use them to build walls and box the snake in.',
+  1: 'Move with the Arrow keys or WASD (or swipe). Lead the snake into a wall, a rock, or its own tail. Don’t dawdle: snakes get HUNGRY and faster the longer a level lasts!',
+  2: 'Drop a bramble behind you (E) while a snake chases you. It needs a moment to spot fresh thorns, so if it\u2019s right on your tail: OUCH! Slipping right past a snake\u2019s nose builds NERVE, which multiplies your score.',
+  3: 'Snakes now LUNGE (watch for the red “!”): a lunging snake can’t dodge fresh thorns. NEW: Hidden Rot (Q)! A snake that bites you while you’re rotten gets SICK and withers away, unless it bites a fresh apple first. Run!',
+  4: 'Snakes spot brambles faster as they grow up, and they won\u2019t follow you into a dead end. Use thorns to build walls and box them in.',
   5: 'BOSS LEVEL! King Cobra Carl brought a friend. Get them to crash into each other!',
   6: 'Snakes are getting clever. They try to avoid dead ends now, so you’ll need real traps.',
-  10: 'Older snakes can SNIFF rot sometimes. Go rotten at the very last second!',
+  10: 'Snakes smell rot faster now. Go rotten at the very last second, or bait a lunge: lunging snakes can’t smell a thing.',
   11: 'Two snakes from now on. Tangle them together for bonus points!',
 };
 
@@ -97,10 +106,14 @@ export const GENERIC_TIPS = [
   'Snakes grow longer every few seconds. Run them out of room!',
   'Grab stars to unlock upgrades and skins in the Orchard.',
   'Seed pickups refill your brambles.',
-  'A snake that bites a rotten apple is out instantly, and it’s worth double points.',
+  'Sick snakes are slow and can’t lunge. Rot one again for an instant knockout!',
   'Corners are dangerous for you AND the snake.',
   'Drop a bramble right after a sharp turn. Snakes can’t stop!',
   'Hearts heal one bite.',
+  'Getting bitten calms a hungry snake down a little. Small comfort.',
+  'The snake that ends your run becomes your NEMESIS. Beat it for its bounty!',
+  'Check the title screen for today’s contracts. They change every day.',
+  'A sick snake that bites you is cured. Keep your distance until it withers!',
   'NERVE multiplies everything, even crash bonuses. Dance close before you spring the trap!',
   'A lunging snake that just misses you counts double for NERVE.',
   'S grades need no bites, a quick clear and a NERVE of 4 or more.',
@@ -123,7 +136,7 @@ export function baseStats(mode) {
     decoyCd: 16,
     decoyDur: 5,
     magnet: 0,
-    odorless: false,
+    scent: 0,
     luck: 1,
     starBonus: 1,
   };
@@ -148,7 +161,7 @@ export const PERKS = [
   { id: 'regrow', icon: '🌱', name: 'Regrowth', desc: 'Brambles regrow twice as fast.', max: 2, apply: s => { s.thornRegen *= 0.5; } },
   { id: 'deeprot', icon: '🦠', name: 'Deep Rot', desc: 'Rot lasts 1s longer.', max: 3, apply: s => { s.rotDur += 1; } },
   { id: 'rotspread', icon: '🍂', name: 'Fast Decay', desc: 'Rot recharges 25% faster.', max: 3, apply: s => { s.rotCd *= 0.75; } },
-  { id: 'odorless', icon: '🤫', name: 'Odorless Rot', desc: 'Snakes can never sniff your rot.', max: 1, apply: s => { s.odorless = true; } },
+  { id: 'odorless', icon: '🤫', name: 'Faint Scent', desc: 'Snakes take 0.4s longer to smell your rot.', max: 2, apply: s => { s.scent += 0.4; } },
   { id: 'skin', icon: '❤️', name: 'Extra Crunchy', desc: '+1 max bite and heal fully.', max: 2, apply: s => { s.maxBites += 1; } , heal: true },
   { id: 'magnet', icon: '🧲', name: 'Star Magnet', desc: 'Pull stars from further away.', max: 2, apply: s => { s.magnet += 1.5; } },
   { id: 'lucky', icon: '🍀', name: 'Lucky Leaf', desc: 'Pickups appear more often.', max: 2, apply: s => { s.luck *= 1.35; } },
@@ -189,3 +202,31 @@ export function eventFor(level, rnd) {
 }
 
 export const GRADE_COLORS = { S: '#ffb300', A: '#43a047', B: '#1e88e5', C: '#8d6e63' };
+
+// The snake that ends your run becomes your nemesis and ranks up each time it
+// gets you again. Index = rank - 1.
+export const NEMESIS_TITLES = ['the Hungry', 'the Apple-Eater', 'the Orchard Terror', 'the Core Crusher', 'the Legend'];
+export const nemesisName = n => `${n.first} ${NEMESIS_TITLES[Math.min(NEMESIS_TITLES.length, n.rank) - 1]}`;
+export const nemesisBounty = n => 25 * n.rank + 10 * (n.wins - 1);
+
+// Daily Contracts: three challenges a day (one per tier), the same for everyone.
+// `n` lists possible targets; the day's seed picks one.
+export const CONTRACTS = [
+  { id: 'close', tier: 0, icon: '⚡', n: [15, 25], text: n => `Make ${n} close calls` },
+  { id: 'stars', tier: 0, icon: '⭐', n: [30, 50], text: n => `Collect ${n} stars` },
+  { id: 'level', tier: 0, icon: '🏁', n: [5, 6], text: n => `Reach level ${n} in one run` },
+  { id: 'walls', tier: 0, icon: '🧱', n: [3, 5], text: n => `Bonk ${n} snakes into walls or rocks` },
+  { id: 'scratch', tier: 0, icon: '🌿', n: [3, 5], text: n => `Scratch ${n} snakes with fresh thorns` },
+  { id: 'nerve', tier: 1, icon: '🔥', n: [8, 10], text: n => `Reach Nerve ×${1 + 0.25 * n}` },
+  { id: 'poison', tier: 1, icon: '🦠', n: [2, 3], text: n => `Wither ${n} snakes with Hidden Rot` },
+  { id: 'self', tier: 1, icon: '🪢', n: [2, 3], text: n => `Tie ${n} snakes in knots` },
+  { id: 'unbitten', tier: 1, icon: '🛡️', n: [3, 4], text: n => `Clear ${n} levels without a bite` },
+  { id: 'frenzy', tier: 1, icon: '🌶️', n: [1, 2], text: n => `Clear ${n === 1 ? 'a level' : n + ' levels'} during a FRENZY` },
+  { id: 'lunge', tier: 2, icon: '🎯', n: [1, 2], text: n => `Thorn ${n === 1 ? 'a lunging snake' : n + ' lunging snakes'}` },
+  { id: 'grade', tier: 2, icon: '🌟', n: [1, 2], text: n => `Earn ${n === 1 ? 'an S grade' : n + ' S grades'}` },
+  { id: 'tangle', tier: 2, icon: '🕸️', n: [1, 2], text: n => `Tangle snakes together ${n === 1 ? 'once' : n + ' times'}` },
+  { id: 'double', tier: 2, icon: '💥', n: [1], text: () => 'Get a DOUBLE KO' },
+  { id: 'deep', tier: 2, icon: '🏔️', n: [9, 11], text: n => `Reach level ${n} in one run` },
+];
+export const CONTRACT_REWARD = [15, 25, 40];
+export const CONTRACT_BONUS = 30;
