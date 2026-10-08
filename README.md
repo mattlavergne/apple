@@ -14,7 +14,7 @@ Pure HTML/CSS/JS with no build step. All graphics are drawn on a canvas and all 
 
 ## Cloud sync
 
-Progress can follow you between devices with no account: **Sync** on the title screen makes a random 12-character code (shown as text, a link and a QR code). Open the link, scan the code or type it on another device to link it. Saves are stored by the homepage Worker in [`mattlavergne/landing-page`](https://github.com/mattlavergne/landing-page) (`src/apple-api.js`, a Cloudflare D1 table) at `mattlavergne.com/apple/api`. No personal data is stored.
+Progress can follow you between devices with no account: **Sync** on the title screen makes a random 12-character code. Type it (or paste the message *Send code* makes) into Sync on another device to link it. Saves are stored by the homepage Worker in [`mattlavergne/landing-page`](https://github.com/mattlavergne/landing-page) (`src/apple-api.js`, a Cloudflare D1 table) at `mattlavergne.com/api/apple`. No personal data is stored.
 
 **Fast:** changes go up within a second. Another device picks them up when the game opens, comes back to the front, the map opens or a menu is tapped. While a menu is on screen it also checks every 10 seconds (every 30 when the window isn't focused).
 
@@ -78,19 +78,28 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 
 ## Store app
 
-The app is free to play with ads: levels 1–20 and the Daily Run are free, and one $2.99 purchase unlocks all 100 levels and Endless and removes the ads. Ads only show on menus, never during play. The web version has everything and no ads; add `?store` to the address to preview the free app's paywall and ad layout. Details are in `js/monetization.js` and STORE.md.
+The app is free to play with ads: levels 1–20 and the Daily Run are free, and one $2.99 purchase unlocks all 100 levels and Endless and removes the ads. Ads only show on menus, never during play. The web copy is the developer's private test site: it has everything and no ads, and its test tools can switch it to the free app's paywall and ad layout. Details are in `js/monetization.js` and STORE.md.
 
 `ios/` and `android/` are [Capacitor](https://capacitorjs.com) projects that wrap these same files. `npm install && npm run sync` copies the game in (via `tools/build-www.mjs`), then build in Xcode or Android Studio. Anything device-specific (saving, haptics, sharing, back button, backgrounding) goes through `js/platform.js`, which falls back to plain web APIs in a browser, so features only need to be written once. [STORE.md](STORE.md) has the full release checklist.
 
 ## Hosting
 
-The game is a static site on **GitHub Pages**, at `https://mattlavergne.github.io/apple/`.
-
-It appears at **mattlavergne.com/apple** through the homepage Worker in
+Players get the game from the App Store. The web copy is the developer's
+private test site at **mattlavergne.com/apple**, locked with Cloudflare Access
+and served through the homepage Worker in
 [`mattlavergne/landing-page`](https://github.com/mattlavergne/landing-page). An
 `/apple` entry in that Worker's `APPS` registry opens the game in a mattOS app
-window and reverse-proxies `/apple/_app/*` to the GitHub Pages copy. Pushing
-here updates the live game. No change to the homepage is needed.
+window and reverse-proxies `/apple/_app/*` to **GitHub Pages**. Pushing here
+updates the test site within a minute or two.
+
+Opened directly at `mattlavergne.github.io/apple`, the game doesn't run; it
+says it's coming to the App Store. The privacy policy (`privacy.html`) is
+public at mattlavergne.com/privacy/apple and also ships inside the app.
+
+On the test site, the 🛠️ button opens test tools (`js/admin.js`): a separate
+test save that never syncs, a free app / bought switch, and level, star and
+play tools. STORE.md, "Test site", has the details. The app never includes
+them.
 
 All asset paths in this repo are relative, so the game works under any sub-path.
 
@@ -110,6 +119,7 @@ Balance checks (headless bots, run per level):
 - `node tools/rotcamper.mjs [trials]`: "stand still and rot when the snake is close". It should almost never clear a level.
 - `node tools/rotkite.mjs [trials]`: rot at the right moment, then run until the snake withers. This is the skill play, and it should usually work but take a while.
 - `node tools/adventure.mjs [trials] [from] [to] [-v]`: plays every Adventure level (both orientations) and reports clear rates per world (`-v` for per-level detail).
+- `node tools/test-site.mjs`: the test site's tools (test save, free app / bought, level tools), and that none of it touches the real save or syncs.
 - `node tools/bitetrap.mjs`: regression test. A snake that eats you in a dead end must back out, never hand you the level.
 - `node tools/circler.mjs [trials]`: "run laps around the border". It should get bitten quickly.
 - `node tools/nemesis.mjs [trials] [level]`: how often the general bot beats a normal snake versus a nemesis of rank 1–5.

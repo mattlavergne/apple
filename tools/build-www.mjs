@@ -13,7 +13,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const release = process.argv.includes('--release');
 const out = join(root, 'www');
 // sw.js stays out: the app already has every file on the phone.
-const SHIP = ['index.html', 'favicon.svg', 'manifest.webmanifest', 'css', 'js', 'fonts', 'vendor', 'assets'];
+const SHIP = ['index.html', 'privacy.html', 'favicon.svg', 'manifest.webmanifest', 'css', 'js', 'fonts', 'assets'];
 const bridge = join(root, 'node_modules/@capacitor/core/dist/capacitor.js');
 
 if (!existsSync(bridge)) {
@@ -25,7 +25,7 @@ if (!existsSync(bridge)) {
 if (release) {
   const TEST_PUB = '3940256099942544';
   const read = f => readFileSync(join(root, f), 'utf8');
-  const { AD_UNITS } = await import('../js/monetization.js');
+  const { AD_UNITS, TEST_DEVICES } = await import('../js/monetization.js');
   const ids = [
     ...Object.entries(AD_UNITS).flatMap(([os, u]) => Object.entries(u).map(([kind, id]) => [`js/monetization.js: AD_UNITS.${os}.${kind}`, id, '/'])),
     ['android/app/src/main/res/values/strings.xml: admob_app_id', read('android/app/src/main/res/values/strings.xml').match(/name="admob_app_id">([^<]*)</)?.[1], '~'],
@@ -39,6 +39,7 @@ if (release) {
     if (pub === TEST_PUB) return [`${where}: still Google's test ID`];
     return [];
   });
+  for (const d of TEST_DEVICES) if (!/^[0-9a-f]{32}$/i.test(d)) problems.push(`js/monetization.js: TEST_DEVICES has "${d}", which isn't a device ID (32 letters and digits from Xcode's console)`);
   if (pubs.size > 1) problems.push(`the IDs come from different AdMob accounts (pub-${[...pubs].join(', pub-')})`);
   const units = ids.filter(([, , sep]) => sep === '/').map(([, id]) => id);
   if (new Set(units).size < units.length) problems.push('two ad units share the same ID');
@@ -50,6 +51,9 @@ if (release) {
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out);
 for (const f of SHIP) if (existsSync(join(root, f))) cpSync(join(root, f), join(out, f), { recursive: true });
+// The web copy's test tools never ship in the app (js/main.js only loads them
+// outside the app, so nothing misses them).
+rmSync(join(out, 'js/admin.js'));
 cpSync(bridge, join(out, 'capacitor.js'));
 
 const html = join(out, 'index.html');

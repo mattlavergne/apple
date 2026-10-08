@@ -14,7 +14,9 @@
 
 // Inside mattlavergne.com the API is same-origin; elsewhere (GitHub Pages,
 // the store app, local dev) call it on the main domain.
-const apiBase = () => (globalThis.location?.hostname?.endsWith('mattlavergne.com') ? '/apple/api' : 'https://mattlavergne.com/apple/api');
+// /api/apple is outside /apple, which is locked to the developer (Cloudflare
+// Access), so the app and the test site reach it the same way.
+const apiBase = () => (globalThis.location?.hostname?.endsWith('mattlavergne.com') ? '/api/apple' : 'https://mattlavergne.com/api/apple');
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
 
 export function newCode() {
@@ -24,8 +26,12 @@ export function newCode() {
 }
 export const formatCode = c => (c || '').match(/.{1,4}/g)?.join('-') || '';
 export function normalizeCode(s) {
-  const c = String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  return /^[A-HJ-NP-Z2-9]{12}$/.test(c) ? c : null;
+  const text = String(s || '').toUpperCase();
+  const c = text.replace(/[^A-Z0-9]/g, '');
+  if (/^[A-HJ-NP-Z2-9]{12}$/.test(c)) return c;
+  // A whole pasted message ("My The Apple sync code: ABCD-EFGH-JKLM"): find the code in it.
+  const m = text.match(/(?:^|[^A-Z0-9])([A-HJ-NP-Z2-9]{4})[-\s]?([A-HJ-NP-Z2-9]{4})[-\s]?([A-HJ-NP-Z2-9]{4})(?![A-Z0-9])/);
+  return m ? m[1] + m[2] + m[3] : null;
 }
 
 export class SyncError extends Error {

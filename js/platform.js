@@ -22,6 +22,21 @@ const safe = (fn, fallback) => {
   try { return Promise.resolve(fn()).catch(() => fallback); } catch { return Promise.resolve(fallback); }
 };
 
+// ------------------------------------------------------------------ test site
+// The web version is the developer's private test copy; players get the app.
+// Its test tools (js/admin.js, left out of the app) can switch to a separate
+// test save under its own keys, so testing never touches real progress or its
+// sync code. In the app `admin` is always empty.
+const ADMIN_KEY = 'the-apple-admin';
+export const admin = isNative ? {} : (() => {
+  try { return JSON.parse(localStorage.getItem(ADMIN_KEY)) || {}; } catch { return {}; }
+})();
+export function setAdmin(changes) {
+  if (isNative) return;
+  Object.assign(admin, changes);
+  try { localStorage.setItem(ADMIN_KEY, JSON.stringify(admin)); } catch { /* storage blocked */ }
+}
+
 // ------------------------------------------------------------------ storage
 // Synchronous reads and writes, with an in-memory copy for when storage is
 // blocked. Reads go to localStorage first so a tab sees what another tab just
@@ -30,9 +45,14 @@ const safe = (fn, fallback) => {
 // which are part of device backups) holds the real copy and is loaded back
 // before the game starts.
 const PREFIX = 'the-apple.';
+const TEST_PREFIX = 'the-apple-test.';
+const keyFor = key => (admin.testSave && key.startsWith(PREFIX) ? TEST_PREFIX + key.slice(PREFIX.length) : key);
 const memory = new Map();
 export const storage = {
+  // The name a key is really stored under (it differs in the test save).
+  key: keyFor,
   get(key) {
+    key = keyFor(key);
     try {
       const v = localStorage.getItem(key);
       if (v !== null) return v;
@@ -40,9 +60,16 @@ export const storage = {
     return memory.has(key) ? memory.get(key) : null;
   },
   set(key, value) {
+    key = keyFor(key);
     memory.set(key, value);
     try { localStorage.setItem(key, value); } catch { /* storage blocked */ }
     if (Preferences) safe(() => Preferences.set({ key, value }));
+  },
+  remove(key) {
+    key = keyFor(key);
+    memory.delete(key);
+    try { localStorage.removeItem(key); } catch { /* storage blocked */ }
+    if (Preferences) safe(() => Preferences.remove({ key }));
   },
 };
 
@@ -113,10 +140,6 @@ export async function share({ text, url }) {
   return 'copied';
 }
 
-// Links meant for other devices. Inside the app the page's own address is
-// capacitor://localhost, which means nothing anywhere else.
-const WEB_HOME = 'https://mattlavergne.com/apple/_app/';
-export const webLink = hash => (isNative ? WEB_HOME : location.origin + location.pathname) + hash;
 
 // ------------------------------------------------------------------ app life
 // cb(active): false when the game goes to the background (home button, app
@@ -148,12 +171,12 @@ if (splashUp) setTimeout(appReady, 4000);
 
 // ------------------------------------------------------------------ purchases
 // The store app sells the full game as a one-time purchase; the web version
-// has everything. Adding ?store to the web address pretends to be the store
-// app (free tier, a pretend Buy button, a placeholder ad) so the paywall and
-// the ad layout can be tried in a browser.
+// has everything. The test tools' "Free app" setting (or ?store in the web
+// address) pretends to be the store app (free tier, a pretend Buy button, a
+// placeholder ad) so the paywall and the ad layout can be tried in a browser.
 const Purchases = plugin('NativePurchases');
 const AdMob = plugin('AdMob');
-export const storeSim = !isNative && new URLSearchParams(location.search).has('store');
+export const storeSim = !isNative && (new URLSearchParams(location.search).has('store') || !!admin.freeApp);
 export const hasStore = isNative || storeSim;
 
 // A store record proves the purchase; Android also reports pending payments.
@@ -243,7 +266,7 @@ export const ads = {
   bannerLoaded: false,
   bannerHeight: 0,
   rewardReady: null,
-  async init({ release, units, childDirected }) {
+  async init({ release, units, childDirected, testDevices = [] }) {
     this.release = release;
     this.units = units[os] || {};
     if (storeSim) { this.ready = true; return; }
@@ -254,7 +277,10 @@ export const ads = {
       if (info.isConsentFormAvailable && info.status === 'REQUIRED') info = await AdMob.showConsentForm();
       if (info.canRequestAds === false) return;
       await AdMob.initialize({
-        initializeForTesting: !release,
+        // Test builds: Google's test ads everywhere. Store builds: real ads,
+        // except on the developer's own devices (monetization.js TEST_DEVICES).
+        initializeForTesting: !release || testDevices.length > 0,
+        testingDevices: testDevices,
         maxAdContentRating: 'General',
         tagForChildDirectedTreatment: childDirected,
         tagForUnderAgeOfConsent: childDirected,

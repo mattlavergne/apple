@@ -662,9 +662,14 @@ html, body { overscroll-behavior: none; }
   padding: 6px 16px; border: 3px dashed var(--ink); border-radius: 14px; background: #fffde7;
   -webkit-user-select: all; user-select: all;
 }
-.sync-qr { width: 150px; height: 150px; margin: 10px auto 0; }
-.sync-qr:empty { display: none; }
-.sync-qr svg { width: 100%; height: 100%; display: block; }
+.privacy-body { text-align: left; font-size: 0.95rem; line-height: 1.5; }
+.privacy-body h1 { font-size: 1.35rem; margin: 0 0 4px; }
+.privacy-body h2 { font-size: 1.05rem; margin: 1.2em 0 0.3em; }
+.privacy-body .updated { margin: 0; opacity: 0.7; font-size: 0.85rem; }
+.privacy-body ul { padding-left: 1.2em; }
+.privacy-body li { margin: 0.25em 0; }
+.privacy-body a { color: #22679a; word-break: break-word; }
+.privacy-panel > .btn { display: block; margin: 16px auto 0; }
 .sync-status { min-height: 1.2em; font-size: 0.9rem; font-weight: 600; margin: 10px 0 0; }
 
 /* ---------------------------------------------------------------- app shell */

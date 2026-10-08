@@ -1,11 +1,11 @@
 // Offline support: the game always opens, even with no connection, and a new
 // version appears on the next launch. Bump VERSION when the file list changes.
-const VERSION = 'apple-v4';
+const VERSION = 'apple-v5';
 const SHELL = [
-  './', 'index.html', 'css/style.css', 'favicon.svg', 'manifest.webmanifest',
+  './', 'index.html', 'privacy.html', 'css/style.css', 'favicon.svg', 'manifest.webmanifest',
   'js/main.js', 'js/engine.js', 'js/render.js', 'js/config.js', 'js/audio.js', 'js/input.js', 'js/save.js',
   'js/levels.js', 'js/sync.js', 'js/platform.js',
-  'fonts/fredoka-latin.woff2', 'fonts/fredoka-latin-ext.woff2', 'vendor/qrcode-1.4.4.min.js',
+  'fonts/fredoka-latin.woff2', 'fonts/fredoka-latin-ext.woff2',
   'assets/icon-192.png', 'assets/icon-512.png', 'assets/apple-touch-icon.png',
 ];
 

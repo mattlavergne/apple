@@ -101,6 +101,8 @@ page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 const external = [];
 page.on('request', r => { if (!r.url().startsWith(base) && !r.url().startsWith('data:') && !r.url().startsWith('blob:')) external.push(r.url()); });
 await page.addInitScript(fakeBridge, { os, seed });
+// Test-tool settings left in the WebView (they only mean something on the web copy).
+await page.addInitScript(() => localStorage.setItem('the-apple-admin', JSON.stringify({ testSave: true, freeApp: false })));
 await page.goto(base);
 await page.waitForSelector('#screen-title.show');
 await page.waitForTimeout(600);
@@ -156,9 +158,26 @@ await fire('App.appStateChange', { isActive: true });
 await page.click('#tgl-haptics'); await page.click('#tgl-haptics');
 check((await calls()).some(c => c.startsWith('Haptics.')), 'haptics use the native plugin');
 
-// Sync screen: the link button opens the share sheet.
-check(await page.textContent('#sync-copy') === 'Send link', 'sync link button says "Send link"');
+// Sync screen: just the code, sent through the share sheet. No web link or QR code.
+check(await page.textContent('#sync-copy') === 'Send code' && !(await page.$('#sync-qr')), 'sync shares the code itself, with no web link or QR code');
 
+// The privacy policy opens inside the app, from the copy shipped with it.
+if (await visible() !== 'screen-pause') await fire('App.backButton', {});
+await page.click('#btn-quit');
+await page.waitForSelector('#screen-map.show');
+await fire('App.backButton', {});
+await page.waitForSelector('#screen-title.show');
+await page.click('#btn-help');
+await page.click('#help-privacy');
+await page.waitForSelector('#screen-privacy.show');
+check((await page.textContent('#privacy-body')).includes('Privacy Policy') && (await page.textContent('#privacy-body')).includes('contact@mattlavergne.com'), 'privacy policy opens in the app');
+check(await page.$$eval('#privacy-body a[href^="http"]', as => as.every(a => a.target === '_blank')), 'its outside links open in the browser, never inside the game');
+await fire('App.backButton', {});
+check(await visible() === 'screen-help', 'back on the privacy policy returns to How to play');
+check(!(await page.$('a[href*="mattlavergne.com"]:not([href^="mailto:"]), a[href*="github.io"]')), 'no links to the website anywhere in the app (the support email stays)');
+
+// The web copy's test tools: not in the app, and their settings do nothing here.
+check(!(await page.$('#admin-btn')) && !existsSync(join(root, 'js/admin.js')), 'no test tools in the app');
 check(external.length === 0, `no requests leave the app${external.length ? ': ' + external.join(', ') : ''}`);
 check(errors.length === 0, `no console errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 
@@ -207,6 +226,9 @@ await store.evaluate(() => window.__game.levelComplete('LEVEL CLEAR!'));
 await store.waitForSelector('#screen-result.show', { timeout: 15000 });
 check(await adOn(), 'banner back on the results screen');
 check(await store.isVisible('#res-bonus'), 'results offer an optional ad for bonus stars');
+await store.click('#res-share');
+const shared = await store.evaluate(() => window.__calls.filter(c => c[0] === 'Share').map(c => c[2]).pop());
+check(shared && shared.text.includes('Level 1') && !JSON.stringify(shared).includes('mattlavergne'), 'sharing a result never sends people to the website');
 const ledgerBefore = await store.evaluate(() => JSON.parse(localStorage.getItem('the-apple.save.v1')).ledger);
 await store.click('#res-bonus');
 await store.waitForFunction(() => document.querySelector('#res-bonus').classList.contains('hidden'));
@@ -256,9 +278,28 @@ await rel.waitForFunction(() => document.documentElement.classList.contains('ad-
 await rel.evaluate(async () => (await import('/js/platform.js')).ads.prepareRewarded());
 const relAsks = await adAsks(rel);
 const ask = m => relAsks.find(([n]) => n === m)?.[1] || {};
-check(ask('initialize').initializeForTesting === false &&
+check(ask('initialize').initializeForTesting === false && ask('initialize').testingDevices?.length === 0 &&
   ask('showBanner').adId === AD_UNITS[os].banner && ask('showBanner').isTesting === false && ask('showBanner').npa === true &&
   ask('prepareRewardVideoAd').adId === AD_UNITS[os].rewarded && ask('prepareRewardVideoAd').isTesting === false, `store build: real ${os} ad units, not personalized`);
+// Your own phone listed in TEST_DEVICES: still the real ad units, but AdMob is
+// told to send that device test ads.
+const ctx6 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+const mine = await ctx6.newPage();
+mine.on('pageerror', e => errors.push(e.message));
+const DEV = '2077ef9a63d2b398840261c8221a0c9b';
+await mine.route('**/js/build-info.js', r => r.fulfill({ contentType: 'text/javascript', body: 'export const RELEASE = true;\n' }));
+await mine.route('**/js/monetization.js', async r => {
+  const body = (await (await r.fetch()).text()).replace('export const TEST_DEVICES = [];', `export const TEST_DEVICES = ['${DEV}'];`);
+  await r.fulfill({ contentType: 'text/javascript', body });
+});
+await mine.addInitScript(fakeBridge, { os, seed });
+await mine.goto(base);
+await mine.waitForFunction(() => document.documentElement.classList.contains('ad-on'), null, { timeout: 5000 }).catch(() => {});
+const mineAsks = await adAsks(mine);
+const mineInit = mineAsks.find(([n]) => n === 'initialize')?.[1] || {};
+const mineBanner = mineAsks.find(([n]) => n === 'showBanner')?.[1] || {};
+check(mineInit.initializeForTesting === true && mineInit.testingDevices?.[0] === DEV && mineBanner.adId === AD_UNITS[os].banner && mineBanner.isTesting === false,
+  'store build on a listed test device: AdMob told to send it test ads');
 check(errors.length === 0, `no errors in the purchase flows${errors.length ? ': ' + errors.join(' | ') : ''}`);
 
 await browser.close();

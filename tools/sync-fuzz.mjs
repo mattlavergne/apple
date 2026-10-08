@@ -103,7 +103,7 @@ function makeDevice(id, code, opts = {}) {
     if (R() < dev.net.after) throw new TypeError('network down (answer lost)');
     return res;
   };
-  dev.api = makeApi(fetchImpl, () => 'https://mattlavergne.com/apple/api');
+  dev.api = makeApi(fetchImpl, () => 'https://mattlavergne.com/api/apple');
   dev.boot = () => {
     // An app restart: everything in memory is gone, the stored save is reloaded.
     dev.save = JSON.parse(dev.stored);
@@ -200,7 +200,7 @@ async function scenario(seed) {
       // An old game version: no revisions, and it uploads its own save without
       // looking at the cloud first.
       const body = JSON.stringify({ data: dev.payload(), updatedAt: dev.save.updatedAt });
-      await handleAppleApi(new Request(`https://mattlavergne.com/apple/api/save/${code}`, { method: 'PUT', body }), env);
+      await handleAppleApi(new Request(`https://mattlavergne.com/api/apple/save/${code}`, { method: 'PUT', body }), env);
     }
     await sleep(Math.floor(R() * 4));
     const now = cloudRow(code);
