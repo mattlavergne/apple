@@ -22,8 +22,10 @@ Progress can follow you between devices with no account: **Sync** on the title s
 - **Merging only adds.** Unlocked levels, best stars and scores, upgrades, skins and lifetime stats take the best of both devices. The star balance is a per-device ledger, so balances from two devices add up instead of overwriting each other. The daily run and contracts merge by day. Choices (equipped skin, mode, settings, nemesis) come from whichever device changed most recently. The merge gives the same result whichever device runs it, so devices settle instead of re-uploading forever.
 - **Every merge is double-checked** (`safeMerge` in `js/sync.js`) against both saves before it's used. If anything would go down, sync stops and the device keeps its own save.
 - **The server only accepts a save based on its latest revision** (compare-and-swap). It sends back the newer save, and the game merges and retries. It also refuses any save with less progress than the one it has, even from an older game version.
-- **History:** the server keeps the last 20 versions of each save plus the last one of each day for 30 days (`apple_save_history`). Each device keeps its last 10 saves from before a merge replaced them (`the-apple.save.backups` in local storage). A save that can't be read is set aside, never overwritten.
+- **History:** the server keeps the last 10 versions of each save plus the last one of each day for 14 days (`apple_save_history`). Each device keeps its last 10 saves from before a merge replaced them (`the-apple.save.backups` in local storage). A save that can't be read is set aside, never overwritten.
 - **Two tabs** on one computer merge each other's saves instead of overwriting them.
+
+**Minimal data:** only progress is uploaded. Settings stay on each device. Cloud saves nobody has synced for 6 months are deleted with their history. **Delete cloud copy** on the Sync screen removes a save and its history at once; other devices still using that code are told and turn sync off instead of uploading it again.
 
 Every top-level save field must be listed in `SAVE_FIELDS` in `js/sync.js`. A new progress field also needs a merge rule and a progress check, on both the game and the server.
 

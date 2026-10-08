@@ -56,10 +56,11 @@ async function device(opts) {
   await ctx.route('https://mattlavergne.com/apple/api/**', api);
   const page = await ctx.newPage();
   page.on('pageerror', e => errors.push(e.message));
-  // Expected from the sync API: 404 (a new code has nothing saved yet) and 409
-  // (another device or tab saved first; the game merges and retries). The
-  // browser logs both as errors; anything else is a real problem.
-  page.on('console', m => { if (m.type() === 'error' && !/status of (404|409)/.test(m.text())) errors.push(m.text()); });
+  // Expected from the sync API: 404 (a new code has nothing saved yet), 409
+  // (another device or tab saved first; the game merges and retries) and 410
+  // (the code was deleted). The browser logs these as errors; anything else is
+  // a real problem.
+  page.on('console', m => { if (m.type() === 'error' && !/status of (404|409|410)/.test(m.text())) errors.push(m.text()); });
   page.on('response', r => {
     const api = r.url().includes('/apple/api/save/');
     if ((r.status() === 404 && !(api && r.request().method() === 'GET')) || (r.status() === 409 && !api)) errors.push(`${r.status()} ${r.url()}`);
@@ -158,6 +159,21 @@ const row = db.prepare('SELECT data, rev FROM apple_saves WHERE code = ?').get(c
 check(JSON.parse(row.data).adventure.unlocked >= 5, `cloud save is up to date (revision ${row.rev})`);
 const versions = db.prepare('SELECT COUNT(*) AS n FROM apple_save_history WHERE code = ?').get(code).n;
 check(versions >= 3, `cloud keeps earlier versions (${versions})`);
+check(!('settings' in JSON.parse(row.data)), 'device settings stay on the device');
+
+// Deleting the cloud copy from the phone turns sync off everywhere.
+if (await phone.page.isVisible('#map-back')) await phone.page.click('#map-back');
+await phone.page.click('#btn-sync');
+phone.page.once('dialog', d => d.accept());
+await phone.page.click('#sync-delete');
+await phone.page.waitForFunction(() => !window.__save.sync);
+check((await phone.page.textContent('#sync-status')).includes('Cloud copy deleted'), 'phone: cloud copy deleted, progress kept');
+check(!db.prepare('SELECT 1 FROM apple_saves WHERE code = ?').get(code), 'the cloud copy is gone');
+check(db.prepare('SELECT COUNT(*) AS n FROM apple_save_history WHERE code = ?').get(code).n === 0, 'its history is gone too');
+await pc.page.evaluate(() => window.dispatchEvent(new Event('focus')));
+check(await waitFor(() => pc.page.evaluate(() => !window.__save.sync), 5000) >= 0, 'computer turns sync off instead of uploading it again');
+check(!db.prepare('SELECT 1 FROM apple_saves WHERE code = ?').get(code), 'and the cloud copy stays deleted');
+check(await unlocked(pc.page) >= 5 && await unlocked(phone.page) >= 4, 'both devices keep their progress');
 check(!errors.length, `no errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 
 await browser.close();

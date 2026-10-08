@@ -5,7 +5,7 @@ import * as audio from './audio.js';
 import * as platform from './platform.js';
 import { Input } from './input.js';
 import { KEY as SAVE_KEY, load, store, readStored, backup, withDefaults } from './save.js';
-import { newCode, formatCode, normalizeCode, CloudSync, safeMerge, stableStringify } from './sync.js';
+import { newCode, formatCode, normalizeCode, CloudSync, safeMerge, stableStringify, regressions, SAVE_FIELDS } from './sync.js';
 import { ADVENTURE_LEVELS, LEVELS_PER_WORLD, adventureLevel, objectiveText, OBJECTIVE_ICON } from './levels.js';
 import {
   WORLDS, MODES, UPGRADES, SKINS, TIPS, GENERIC_TIPS, CORE_UNLOCK_LEVEL, EVENTS, GRADE_COLORS,
@@ -81,9 +81,16 @@ let runKind = 'normal';
 let screen = 'title';      // title | play | paused | perks | over
 let returnTo = 'title';    // where "Back" from help/orchard goes
 let saveTimer = null;
+// The save as uploaded: without the fields that stay on this device (sync
+// code, device id, settings).
+const syncPayload = () => {
+  const out = { ...save };
+  for (const k of SAVE_FIELDS.local) delete out[k];
+  return out;
+};
 // The timestamp only moves when progress really changes, so simply opening the
 // game never makes a stale device look newest during a sync merge.
-const progressSnapshot = () => { const { sync, updatedAt, device, ...rest } = save; return JSON.stringify(rest); };
+const progressSnapshot = () => { const { updatedAt, ...rest } = syncPayload(); return JSON.stringify(rest); };
 let lastSnapshot = progressSnapshot();
 const persist = (now = false) => {
   const snap = progressSnapshot();
@@ -98,18 +105,16 @@ const persist = (now = false) => {
 };
 
 // ------------------------------------------------------------------ merging saves
-// The save as uploaded: without the sync code and device id, which stay here.
-const syncPayload = () => { const { sync, device, ...rest } = save; return rest; };
 
 // Replaces this device's progress with a merge that safeMerge() has already
 // checked can only add. The previous save goes to the backups first.
 function replaceProgress(merged) {
   backup(syncPayload());
   const before = { unlocked: save.adventure.unlocked, stars: totalAdvStars() };
-  const keep = save.sync, device = save.device;
+  const keep = {};
+  for (const k of SAVE_FIELDS.local) if (k in save) keep[k] = save[k];
   for (const k of Object.keys(save)) delete save[k];
-  Object.assign(save, withDefaults(JSON.parse(JSON.stringify(merged))), { device });
-  if (keep) save.sync = keep;
+  Object.assign(save, withDefaults(JSON.parse(JSON.stringify(merged))), keep);
   normalizeSave();
   lastSnapshot = progressSnapshot();
   return before;
@@ -129,20 +134,29 @@ function writeSave() {
   store(save);
   lastWritten = platform.storage.get(SAVE_KEY);
 }
+// Returns whether this tab's progress changed.
 function absorbLocal(other) {
-  const { sync, device, ...theirs } = other;
+  const theirs = { ...other };
+  for (const k of SAVE_FIELDS.local) delete theirs[k];
   try {
     const merged = safeMerge(syncPayload(), theirs);
-    if (stableStringify(merged) !== stableStringify(syncPayload())) { replaceProgress(merged); refreshScreen(); }
+    if (stableStringify(merged) === stableStringify(syncPayload())) return false;
+    replaceProgress(merged);
+    refreshScreen();
+    return true;
   } catch (e) {
     backup(theirs);
     console.error(e);
+    return false;
   }
 }
-// Another tab saved: pick it up right away.
+// Another tab saved: pick it up right away, and if that tab's write raced
+// one from here, store the combined save so storage has both.
 window.addEventListener('storage', e => {
   if (e.key !== SAVE_KEY || !e.newValue) return;
-  try { absorbLocal(JSON.parse(e.newValue)); } catch { /* damaged; load() sets those aside */ }
+  let other = null;
+  try { other = JSON.parse(e.newValue); } catch { return; /* damaged; load() sets those aside */ }
+  if (absorbLocal(other) || regressions(other, syncPayload()).length) writeSave();
 });
 
 // Redraws whatever is on screen after progress arrived from elsewhere.
@@ -181,8 +195,21 @@ const cloud = new CloudSync({
     else setSyncStatus('\u26a0\ufe0f ' + err.message);
     if (loudSync) toast(kind === 'ok' ? '\u2601\ufe0f Progress synced' : err.message);
     loudSync = false;
+    // The code's cloud copy was deleted (from another device): stop using it.
+    if (err?.kind === 'deleted') {
+      syncOff(err.message);
+      if (screen !== 'play') toast(err.message);
+    }
   },
 });
+function syncOff(msg) {
+  delete save.sync;
+  cloud.reset();
+  writeSave();
+  syncMsg = msg;
+  if ($('#screen-sync').classList.contains('show')) renderSync();
+  else $('#btn-sync').setAttribute('aria-pressed', 'false');
+}
 // Explicit taps get a toast; background syncs stay quiet.
 async function syncNow(quiet = false) {
   if (!save.sync?.code) return;
@@ -1037,11 +1064,18 @@ $('#sync-copy').addEventListener('click', async () => {
 if (platform.sharesWithSheet) $('#sync-copy').textContent = 'Send link';
 $('#sync-stop').addEventListener('click', () => {
   // Progress stays on this device; it just stops talking to the cloud.
-  delete save.sync;
-  cloud.reset();
-  writeSave();
-  syncMsg = 'Sync is off on this device. Your progress is still here.';
-  renderSync();
+  syncOff('Sync is off on this device. Your progress is still here.');
+});
+$('#sync-delete').addEventListener('click', async () => {
+  const code = save.sync?.code;
+  if (!code || !confirm('Delete the cloud copy of your progress?\n\nYour progress stays on this device. Other devices using this code will stop syncing.')) return;
+  audio.play('click');
+  try {
+    await cloud.api.deleteSave(code);
+    syncOff('Cloud copy deleted. Your progress is still on this device.');
+  } catch (e) {
+    setSyncStatus('\u26a0\ufe0f ' + e.message);
+  }
 });
 $('#contracts').addEventListener('click', e => {
   if (!e.target.closest('.c-head')) return;
