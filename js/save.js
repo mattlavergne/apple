@@ -1,5 +1,8 @@
-// Persistent progress in localStorage. Every access is guarded: storage can be
-// unavailable (private mode, blocked cookies) and the game must still work.
+// Persistent progress. platform.storage keeps it in localStorage on the web and
+// also in native Preferences in the app. Every access is guarded: storage can
+// be unavailable (private mode, blocked cookies) and the game must still work.
+import { storage } from './platform.js';
+
 const KEY = 'the-apple.save.v1';
 
 const DEFAULT = () => ({
@@ -17,7 +20,7 @@ const DEFAULT = () => ({
 export function load() {
   const base = DEFAULT();
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = storage.get(KEY);
     if (!raw) return base;
     const data = JSON.parse(raw);
     return {
@@ -34,5 +37,5 @@ export function load() {
 }
 
 export function store(save) {
-  try { localStorage.setItem(KEY, JSON.stringify(save)); } catch { /* storage unavailable */ }
+  try { storage.set(KEY, JSON.stringify(save)); } catch { /* storage unavailable */ }
 }

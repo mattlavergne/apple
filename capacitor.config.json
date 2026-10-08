@@ -1,0 +1,25 @@
+{
+  "appId": "com.mattlavergne.theapple",
+  "appName": "The Apple",
+  "webDir": "www",
+  "backgroundColor": "#a9dd8a",
+  "ios": {
+    "contentInset": "never",
+    "scrollEnabled": false,
+    "backgroundColor": "#a9dd8a"
+  },
+  "android": {
+    "backgroundColor": "#a9dd8a"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "backgroundColor": "#a9dd8a",
+      "showSpinner": false
+    },
+    "SystemBars": {
+      "hidden": true,
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}
