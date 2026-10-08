@@ -5,6 +5,7 @@
 // Gameplay scenes let the title-screen AI play a real level and wait for a
 // moment where snakes are closing in, so every run looks a little different.
 //   node tools/store-shots.mjs ipad-13      only that device (see DEVICES)
+//   node tools/store-shots.mjs iap-review   only Apple's in-app purchase review screenshot
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, join, extname } from 'node:path';
@@ -188,6 +189,22 @@ for (const [name, d] of Object.entries(DEVICES)) {
     write(join(root, 'store/screenshots', name, `${scene.id}.jpg`), await frame(page, png, d.out, scene.caption));
   }
   if (name === 'android-phone') write(join(root, 'store/feature-graphic.jpg'), await featureGraphic(page));
+  await ctx.close();
+}
+// App Store Connect wants a screenshot of the purchase screen for the review
+// of the in-app purchase: the free tier's purchase screen (via ?store), unframed.
+if (!only.length || only.includes('iap-review')) {
+  const ctx = await browser.newContext({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+  await ctx.addInitScript(save => { if (!localStorage.getItem('the-apple.save.v1')) localStorage.setItem('the-apple.save.v1', JSON.stringify(save)); }, { ...SAVE, adventure: { unlocked: 21, stars: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [i + 1, 3])), best: {} } });
+  const page = await ctx.newPage();
+  await page.goto(`${base}&store`);
+  await page.waitForSelector('#screen-title.show');
+  await page.click('#btn-endless');
+  await page.waitForSelector('#screen-full.show');
+  await page.waitForTimeout(500);
+  const file = join(root, 'store/iap-review.png');
+  writeFileSync(file, await page.screenshot());
+  console.log('wrote', file.replace(root + '/', ''));
   await ctx.close();
 }
 await browser.close();

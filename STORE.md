@@ -20,7 +20,7 @@ After changing the game, `node tools/native-smoke.mjs` (after `npm run build`) c
 | Screen | Status bar hidden, notch and home indicator handled. Phones are locked to portrait; iPads and Android tablets rotate freely. |
 | Offline | Font and QR code library are bundled. No network needed except for Sync. |
 | Launch | Icon, Android adaptive icon and launch screen drawn from the in-game apple (`tools/make-icons.mjs` → `resources/` → `npx @capacitor/assets generate --assetPath resources`). |
-| Privacy | `privacy.html` (at https://mattlavergne.github.io/apple/privacy.html once merged, linked from How to play). No ads, analytics, tracking or accounts. |
+| Privacy | `privacy.html` (at https://mattlavergne.com/apple/_app/privacy.html, linked from How to play). Covers sync, ads and purchases. No analytics or accounts. |
 | Sync | The server already accepts requests from the apps (`capacitor://localhost`, `https://localhost`). |
 | Android | Verified: the debug APK builds (targets Android 16 / API 36; permissions are Internet and Vibrate only). |
 
@@ -32,7 +32,7 @@ After changing the game, `node tools/native-smoke.mjs` (after `npm run build`) c
 4. **iPad.** The app currently supports iPad (it plays well in landscape). That means also uploading iPad screenshots. To skip that, set Targeted Device Family to iPhone only in Xcode.
 5. **Kids category: probably not.** The game is fine for a 4+ rating without being *in* Apple's Kids category. That category adds rules, such as a parental gate before any link that leaves the app (the privacy link counts).
 
-**Contact details for both stores:** support email `contact@mattlavergne.com` (also in the privacy policy). Support URL: https://mattlavergne.github.io/apple/privacy.html#contact.
+**Contact details for both stores:** support email `contact@mattlavergne.com` (also in the privacy policy). Support URL: https://mattlavergne.com/apple/_app/privacy.html#contact (all store links are in `store/listing.md`).
 
 ## Building
 
@@ -94,32 +94,101 @@ Before each release, bump the version: `versionCode` / `versionName` in `android
 
 ### Ads: set up AdMob
 
-1. Sign up at [admob.google.com](https://admob.google.com) with your Google account, and add payment details there.
-2. *Apps → Add app*, twice (Android, then iOS). Each one gets an **app ID**, which looks like `ca-app-pub-1234…~5678`.
-3. In each app, create two ad units: **Banner** and **Rewarded**. Each gets an **ad unit ID**, which looks like `ca-app-pub-1234…/5678`.
-4. Put your IDs in three places:
+Your publisher ID is `pub-2529441843817238`, so every ID below starts with `ca-app-pub-2529441843817238`.
+
+1. In [AdMob](https://admob.google.com), go to *Apps → Add app → Android*. When asked whether the app is published, answer *No* (you can link the store listing later). Name it *The Apple*. You get an **app ID** like `ca-app-pub-2529441843817238~1234567890`.
+2. In that app, go to *Ad units → Add ad unit* and create:
+   - **Banner**, named *Menu banner*;
+   - **Rewarded**, named *Bonus stars*. The reward setting doesn't matter, because the game decides the reward; use 1 and "bonus".
+
+   Each gets an **ad unit ID** like `ca-app-pub-2529441843817238/1234567890`.
+3. Repeat steps 1–2 for **iOS**. That's 6 IDs in total.
+4. Put them in three places (or send them to me):
    - the four ad unit IDs → `js/monetization.js` (`AD_UNITS`);
    - the Android app ID → `android/app/src/main/res/values/strings.xml` (`admob_app_id`);
    - the iOS app ID → `ios/App/App/Info.plist` (`GADApplicationIdentifier`).
-5. **app-ads.txt:** AdMob gives you a one-line file. It must be served at `https://mattlavergne.com/app-ads.txt`, which means the website listed on your store pages. Send me the line and I'll add it to Landing-Page's `public/`.
-6. **Kids:** if the Play Console *Target audience* includes under-13s, set `CHILD_DIRECTED = true` in `js/monetization.js`. Google then only shows kid-safe ads, which means fewer ads and less money.
+5. **Consent form for the EU and UK:** go to *Privacy & messaging → European regulations → Create message*, pick both apps and publish it. The game shows this form by itself, but only once it's published here.
+6. **app-ads.txt:** done. It's served at https://mattlavergne.com/app-ads.txt by Landing-Page.
+   - AdMob verifies it once the app is published and its store listing names mattlavergne.com as the website (`store/listing.md` uses mattlavergne.com everywhere).
+   - Check *Apps → app-ads.txt* in AdMob a day after launch.
+   - If it says the file can't be found, look in Cloudflare *Security → Events* for blocked requests to `/app-ads.txt`.
+7. **Payments:** under *Payments*, add your bank details and tax info. AdMob pays out monthly once you pass $100.
+8. **Kids:** if the Play Console *Target audience* includes under-13s, set `CHILD_DIRECTED = true` in `js/monetization.js`.
 
 ### Purchases: set up the $2.99 unlock
 
-The product ID is the same in both stores: `com.mattlavergne.theapple.full`.
+The details to type in (product ID, name, description, review note) are in [`store/listing.md`](store/listing.md#in-app-purchase-both-stores).
 
-- **App Store Connect:**
-  1. *Business*: sign the Paid Apps agreement and add banking and tax details. Purchases don't work until this is done.
-  2. Open the app, then *In-App Purchases → + → Non-Consumable*.
-  3. Use the product ID above, price $2.99, a short name and description, and a screenshot of the purchase screen for the reviewer.
-  4. Submit it together with the app version.
-- **Play Console:**
-  1. Set up a payments profile.
-  2. Upload a build to *Internal testing* first. Google only lets you create products once a build with billing is uploaded.
-  3. *Monetize → Products → In-app products → Create product*, with the same ID and $2.99. Activate it.
-- **Testing purchases without paying:**
-  - *iPhone:* purchases in TestFlight builds are free sandbox purchases.
-  - *Android:* add your Google account under *Settings → License testing*, and install from the internal testing track.
+#### Apple (App Store Connect)
+
+1. **Join the Apple Developer Program:**
+   1. Go to [developer.apple.com/programs/enroll](https://developer.apple.com/programs/enroll) and sign in with your Apple ID (it needs two-factor authentication).
+   2. Choose **Individual** and pay $99/year. Approval usually takes a day or two.
+   3. Then sign in at [appstoreconnect.apple.com](https://appstoreconnect.apple.com).
+2. **Small Business Program:** apply at [developer.apple.com/app-store/small-business-program](https://developer.apple.com/app-store/small-business-program/). Apple then takes 15% of sales instead of 30%. It's free; do it before your first sale.
+3. **Agreements, tax and banking.** Purchases won't work, even in testing, until this is done. Go to *Business* (top menu) → *Agreements*, then:
+   1. Accept the **Paid Apps** agreement.
+   2. Add your **bank account**. The holder name must match your legal name.
+   3. Fill in the **US tax form**: a W-9 if you're a US person.
+   4. Wait until the agreement shows **Active**, which can take a day.
+4. **Register the app's ID:**
+   1. In [Certificates, IDs & Profiles](https://developer.apple.com/account/resources/identifiers/list), go to *Identifiers → + → App IDs → App*.
+   2. Description: *The Apple*. Bundle ID: **Explicit**, `com.mattlavergne.theapple`. Then *Register*. In-App Purchase is included automatically.
+5. **Create the app record:** in App Store Connect, go to *Apps → + → New App*:
+   - **Platform:** iOS.
+   - **Name:** *The Apple: Snake in Reverse*. It must be unique on the App Store; if it's taken, try a variant.
+   - **Primary language:** English (U.S.).
+   - **Bundle ID:** `com.mattlavergne.theapple`.
+   - **SKU:** `theapple` (only you see it).
+   - **User access:** Full Access.
+6. **Create the purchase:**
+   1. In the app, go to *Monetization → In-App Purchases → +*. Choose **Non-Consumable**, reference name *Full Game*, product ID `com.mattlavergne.theapple.full`. Then *Create*.
+   2. On its page:
+      - **Availability:** all countries.
+      - **Price Schedule:** *Add Pricing*, base country United States, **$2.99**. Apple fills in the other countries.
+      - **App Store Localization:** *+*, English (U.S.). Display name *Full Game*; description *All 100 levels, Endless mode and no ads.*
+      - **Review Information:** upload `store/iap-review.png` and paste the review note.
+   3. *Save*. The status should read **Ready to Submit**.
+7. **Submit it with the app.** Your first in-app purchase has to go in with a new app version: on the version page, in *In-App Purchases and Subscriptions*, select *Full Game*.
+8. **Test:** builds from TestFlight use Apple's sandbox. Unlock shows the real purchase sheet marked *Sandbox*, and nothing is charged.
+
+#### Google (Play Console)
+
+1. **Sign up** at [play.google.com/console/signup](https://play.google.com/console/signup):
+   - Choose a **personal** account and pay $25 once.
+   - Google verifies your identity with a government ID (a few days), plus a phone through the Play Console app.
+2. **Payments profile:** go to *Settings (gear) → Payments profile*. Create one, or link your existing Google one:
+   - legal name and address;
+   - a **bank account** for payouts (Google sends a small test deposit to confirm it);
+   - **tax info** (W-9 for US persons).
+3. **Create the app:** go to *Home → Create app*:
+   - **App name:** *The Apple: Snake in Reverse*.
+   - **Default language:** English (United States).
+   - **App or game:** Game.
+   - **Free or paid:** **Free**. A free app can never become paid, but purchases inside it are fine.
+   - Tick the declarations, then *Create app*.
+4. **Make the upload file** (on your Mac):
+   ```sh
+   npm install
+   npm run android        # test build (Google's test ads), opens Android Studio
+   ```
+   1. In Android Studio, go to *Build → Generate Signed App Bundle or APK → Android App Bundle*.
+   2. **Key store:** choose *Create new*. Save it **outside** the project (e.g. `~/keys/the-apple-upload.jks`), with a strong password and alias `upload`.
+   3. **Back up the key store and its password** (password manager plus cloud). Every future update must be signed with it.
+   4. Build variant **release**. The file lands in `android/app/release/app-release.aab`.
+
+   A test build is right for this first upload. For the public release, put your AdMob IDs in and use `npm run release:android`.
+5. **Upload it to internal testing:**
+   1. Go to *Test and release → Testing → Internal testing → Create new release*. Keep *Play App Signing* with a Google-generated key (the default).
+   2. Upload `app-release.aab`, then *Next → Save → Start rollout*. Play may ask you to fill in a few *App content* forms first.
+   3. Under *Testers*, create an email list with your Gmail, then open the *join* link on your Android phone and install the app from Play.
+6. **Create the product.** Google only allows this once a build with billing is uploaded.
+   1. Go to *Monetize with Play → Products → One-time products* (older consoles call it *In-app products*) → *Create*.
+   2. Product ID `com.mattlavergne.theapple.full`; name *Full Game*; description *All 100 levels, Endless mode and no ads.*
+   3. Add a *purchase option*, then set the price to **$2.99** (Google converts it for other countries).
+   4. *Save*, then **Activate**.
+7. **Free test purchases:** in the Play Console's account-level *Settings → License testing*, add your Gmail. Purchases from that account in the Play-installed test build use a test card and aren't charged.
+8. **Closed test:** before you can release to everyone, run a closed test with 12+ testers for 14 days. Then go to *Production*.
 
 ## Test vs. production
 

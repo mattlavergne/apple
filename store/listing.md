@@ -68,7 +68,20 @@ Upload them in this order. Each set is at the exact size its store asks for.
 
 ## Contact and links
 
+All on mattlavergne.com, because AdMob checks `app-ads.txt` on the website the listing names (https://mattlavergne.com/app-ads.txt).
+
 - **Support email:** contact@mattlavergne.com
-- **Support URL:** https://mattlavergne.github.io/apple/privacy.html#contact
-- **Privacy policy URL:** https://mattlavergne.github.io/apple/privacy.html
-- **Marketing URL (optional):** https://mattlavergne.com/apple
+- **Support URL:** https://mattlavergne.com/apple/_app/privacy.html#contact
+- **Privacy policy URL:** https://mattlavergne.com/apple/_app/privacy.html
+- **App Store marketing URL:** https://mattlavergne.com/apple
+- **Google Play website:** https://mattlavergne.com
+
+## In-app purchase (both stores)
+
+- **Product ID:** `com.mattlavergne.theapple.full` (permanent; must match `js/monetization.js`)
+- **Type:** Non-consumable (App Store) / one-time product (Google Play)
+- **Price:** $2.99
+- **Display name:** Full Game
+- **Description:** All 100 levels, Endless mode and no ads.
+- **Review screenshot (App Store):** `iap-review.png`
+- **Review note (App Store):** Tap Endless on the title screen, or level 21 on the map, to see the purchase screen. Restore purchase is on that screen and on How to play.
