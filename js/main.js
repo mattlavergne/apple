@@ -4,8 +4,8 @@ import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
 import * as platform from './platform.js';
 import { Input } from './input.js';
-import { load, store } from './save.js';
-import { newCode, formatCode, normalizeCode, pull, push, mergeSaves } from './sync.js';
+import { KEY as SAVE_KEY, load, store, readStored, backup, withDefaults } from './save.js';
+import { newCode, formatCode, normalizeCode, CloudSync, safeMerge, stableStringify } from './sync.js';
 import { ADVENTURE_LEVELS, LEVELS_PER_WORLD, adventureLevel, objectiveText, OBJECTIVE_ICON } from './levels.js';
 import {
   WORLDS, MODES, UPGRADES, SKINS, TIPS, GENERIC_TIPS, CORE_UNLOCK_LEVEL, EVENTS, GRADE_COLORS,
@@ -22,20 +22,25 @@ const canvas = $('#game');
 const renderer = new Renderer(canvas);
 const input = new Input();
 const skin = () => SKINS.find(s => s.id === save.skin) || SKINS[0];
-save.settings = { controls: 'swipe', haptics: true, ...save.settings };
-save.daily = { day: '', best: null, attempts: 0, streak: 0, lastDay: '', ...(save.daily || {}) };
-save.nemesis = save.nemesis || null;
-// Adventure progress: highest unlocked level, best stars (1-3) and score per level.
-save.adventure = { unlocked: 1, stars: {}, best: {}, ...(save.adventure || {}) };
-save.updatedAt = save.updatedAt || 0;
-// Stars are a tiny ledger (earned / spent per device) so two synced devices
-// add up instead of overwriting each other. save.stars is the derived balance.
 save.device = platform.storage.get('the-apple.device') || newCode().slice(0, 8);
 platform.storage.set('the-apple.device', save.device);
-if (!save.ledger) save.ledger = { [save.device]: { e: save.stars || 0, s: 0 } };
-const myLedger = () => (save.ledger[save.device] ||= { e: 0, s: 0 });
+// Stars are a tiny ledger (earned / spent per device) so two synced devices
+// add up instead of overwriting each other. save.stars is the derived balance.
 const starBalance = () => Object.values(save.ledger).reduce((t, l) => t + (l.e || 0) - (l.s || 0), 0);
-save.stars = starBalance();
+const myLedger = () => (save.ledger[save.device] ||= { e: 0, s: 0 });
+// Fills in fields this version expects. Runs on load and after every merge.
+function normalizeSave() {
+  save.settings = { controls: 'swipe', haptics: true, ...save.settings };
+  save.daily = { day: '', best: null, attempts: 0, streak: 0, lastDay: '', ...(save.daily || {}) };
+  save.nemesis = save.nemesis || null;
+  // Adventure progress: highest unlocked level, best stars (1-3) and score per level.
+  save.adventure = { unlocked: 1, stars: {}, best: {}, ...(save.adventure || {}) };
+  save.updatedAt = save.updatedAt || 0;
+  if (!save.ledger) save.ledger = { [save.device]: { e: save.stars || 0, s: 0 } };
+  save.stats.nemesesBeaten = save.stats.nemesesBeaten || 0;
+  save.stars = starBalance();
+}
+normalizeSave();
 function earnStars(n) { myLedger().e += n; save.stars = starBalance(); save.stats.starsEarned += n; }
 function spendStars(n) { myLedger().s += n; save.stars = starBalance(); }
 let advLevel = 1;
@@ -43,7 +48,6 @@ const totalAdvStars = () => Object.values(save.adventure.stars).reduce((a, b) =>
 // 3 stars: no bites. 2 stars: one bite. 1 star: cleared.
 const starsFor = bites => (bites === 0 ? 3 : bites === 1 ? 2 : 1);
 const starStr = n => '\u2605'.repeat(n) + '\u2606'.repeat(3 - n);
-save.stats.nemesesBeaten = save.stats.nemesesBeaten || 0;
 
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 document.documentElement.classList.toggle('is-touch', isTouch);
@@ -86,49 +90,114 @@ const persist = (now = false) => {
   const changed = snap !== lastSnapshot;
   if (changed) { lastSnapshot = snap; save.updatedAt = Date.now(); }
   clearTimeout(saveTimer);
-  if (now) store(save);
-  else saveTimer = setTimeout(() => store(save), 400);
-  if (changed) schedulePush();
+  if (now) writeSave();
+  else saveTimer = setTimeout(writeSave, 400);
+  // Mid-level pickups are batched; the result screen and leaving the game
+  // upload right away.
+  if (changed) cloud.soon(screen === 'play' ? 8000 : 700);
 };
 
-// ------------------------------------------------------------------ cloud sync
-// save.sync = { code, lastSync } lives only on this device and is never uploaded.
-let pushTimer = null, syncing = false, syncMsg = '';
+// ------------------------------------------------------------------ merging saves
+// The save as uploaded: without the sync code and device id, which stay here.
 const syncPayload = () => { const { sync, device, ...rest } = save; return rest; };
-function schedulePush() {
-  if (!save.sync?.code) return;
-  clearTimeout(pushTimer);
-  pushTimer = setTimeout(() => { pushTimer = null; syncNow(true); }, 4000);
+
+// Replaces this device's progress with a merge that safeMerge() has already
+// checked can only add. The previous save goes to the backups first.
+function replaceProgress(merged) {
+  backup(syncPayload());
+  const before = { unlocked: save.adventure.unlocked, stars: totalAdvStars() };
+  const keep = save.sync, device = save.device;
+  for (const k of Object.keys(save)) delete save[k];
+  Object.assign(save, withDefaults(JSON.parse(JSON.stringify(merged))), { device });
+  if (keep) save.sync = keep;
+  normalizeSave();
+  lastSnapshot = progressSnapshot();
+  return before;
 }
-async function syncNow(quiet = false) {
-  const code = save.sync?.code;
-  if (!code || syncing) return;
-  syncing = true;
-  setSyncStatus('Syncing\u2026');
+
+// Never write over progress another tab saved since this one last wrote: fold
+// the stored save in first. If that merge is refused, the stored save goes to
+// the backups before this tab's save replaces it.
+let lastWritten = platform.storage.get(SAVE_KEY);
+function writeSave() {
+  clearTimeout(saveTimer);
+  const stored = platform.storage.get(SAVE_KEY);
+  if (stored && stored !== lastWritten) {
+    const other = readStored();
+    if (other) absorbLocal(other);
+  }
+  store(save);
+  lastWritten = platform.storage.get(SAVE_KEY);
+}
+function absorbLocal(other) {
+  const { sync, device, ...theirs } = other;
   try {
-    const remote = await pull(code);
-    if (remote) {
-      const merged = mergeSaves(syncPayload(), { ...remote.data, updatedAt: remote.updatedAt });
-      const keep = save.sync, device = save.device;
-      for (const k of Object.keys(save)) if (!(k in merged)) delete save[k];
-      Object.assign(save, merged, { sync: keep, device });
-      save.stars = starBalance();
-    }
-    if (!save.updatedAt) save.updatedAt = Date.now();
-    lastSnapshot = progressSnapshot();
-    await push(code, syncPayload(), save.updatedAt);
-    save.sync.lastSync = Date.now();
-    store(save);
-    setSyncStatus('\u2705 Synced just now');
-    if (screen === 'title') renderTitle();
-    if (!quiet) toast('\u2601\ufe0f Progress synced');
+    const merged = safeMerge(syncPayload(), theirs);
+    if (stableStringify(merged) !== stableStringify(syncPayload())) { replaceProgress(merged); refreshScreen(); }
   } catch (e) {
-    setSyncStatus('\u26a0\ufe0f ' + e.message);
-    if (!quiet) toast(e.message);
-  } finally {
-    syncing = false;
+    backup(theirs);
+    console.error(e);
   }
 }
+// Another tab saved: pick it up right away.
+window.addEventListener('storage', e => {
+  if (e.key !== SAVE_KEY || !e.newValue) return;
+  try { absorbLocal(JSON.parse(e.newValue)); } catch { /* damaged; load() sets those aside */ }
+});
+
+// Redraws whatever is on screen after progress arrived from elsewhere.
+function refreshScreen() {
+  if (screen === 'title') renderTitle();
+  else if (screen === 'map') {
+    const el = $('#map-scroll'), top = el.scrollTop;
+    renderMap();
+    el.scrollTop = top;
+  }
+  if ($('#screen-orchard').classList.contains('show')) renderOrchard();
+  if ($('#screen-sync').classList.contains('show')) renderSync();
+}
+
+// ------------------------------------------------------------------ cloud sync
+// save.sync = { code, rev, lastSync } lives only on this device and is never
+// uploaded. Changes go up within a second. Other devices' changes come down
+// when the game opens, comes back to the front, the map opens or a menu is
+// tapped, and on a timer while a menu is on screen (every 10s when the game has
+// focus, every 30s when it's only visible). js/sync.js has the safety checks.
+let syncMsg = '', loudSync = false;
+const cloud = new CloudSync({
+  getPayload: syncPayload,
+  getState: () => save.sync || null,
+  saveState: () => writeSave(),
+  apply: merged => {
+    const before = replaceProgress(merged);
+    writeSave();
+    refreshScreen();
+    if (screen === 'play') return;
+    if (save.adventure.unlocked > before.unlocked) toast(`\u2601\ufe0f Level ${Math.min(ADVENTURE_LEVELS, save.adventure.unlocked)} unlocked from your other device`);
+    else if (totalAdvStars() > before.stars) toast('\u2601\ufe0f Stars synced from your other device');
+  },
+  onStatus: (kind, err) => {
+    if (kind === 'ok') setSyncStatus('\u2705 Synced just now');
+    else setSyncStatus('\u26a0\ufe0f ' + err.message);
+    if (loudSync) toast(kind === 'ok' ? '\u2601\ufe0f Progress synced' : err.message);
+    loudSync = false;
+  },
+});
+// Explicit taps get a toast; background syncs stay quiet.
+async function syncNow(quiet = false) {
+  if (!save.sync?.code) return;
+  if (!quiet) { loudSync = true; setSyncStatus('Syncing\u2026'); }
+  await cloud.sync();
+}
+let lastPull = 0;
+function pull() { lastPull = Date.now(); syncNow(true); }
+setInterval(() => {
+  if (!save.sync?.code || document.hidden || screen === 'play' || screen === 'paused') return;
+  if (document.hasFocus() || Date.now() - lastPull > 29000) pull();
+}, 10000);
+window.addEventListener('pointerdown', () => {
+  if (screen !== 'play' && Date.now() - lastPull > 4000) pull();
+}, { capture: true, passive: true });
 function setSyncStatus(msg) {
   syncMsg = msg;
   const el = document.getElementById('sync-status');
@@ -324,6 +393,7 @@ function openMap() {
   hideBanner();
   renderMap();
   show('map');
+  pull();
   if (game.state !== 'idle' && !game.demo) requestAnimationFrame(() => { renderer.resize(); startDemo(); });
   // Scroll so the next level to play is in view.
   requestAnimationFrame(() => {
@@ -939,7 +1009,8 @@ $('#btn-sync').addEventListener('click', () => { audio.play('click'); openSync()
 $('#sync-enable').addEventListener('click', async () => {
   audio.play('click');
   save.sync = { code: newCode(), lastSync: 0 };
-  store(save);
+  cloud.reset();
+  writeSave();
   renderSync();
   await syncNow();
   renderSync();
@@ -949,7 +1020,8 @@ $('#sync-link').addEventListener('click', async () => {
   if (!code) { audio.play('nope'); setSyncStatus('That doesn\u2019t look like a sync code (12 letters and numbers).'); return; }
   audio.play('click');
   save.sync = { code, lastSync: 0 };
-  store(save);
+  cloud.reset();
+  writeSave();
   renderSync();
   await syncNow();
   renderSync();
@@ -966,7 +1038,8 @@ if (platform.sharesWithSheet) $('#sync-copy').textContent = 'Send link';
 $('#sync-stop').addEventListener('click', () => {
   // Progress stays on this device; it just stops talking to the cloud.
   delete save.sync;
-  store(save);
+  cloud.reset();
+  writeSave();
   syncMsg = 'Sync is off on this device. Your progress is still here.';
   renderSync();
 });
@@ -1051,17 +1124,17 @@ for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
 // screen: the OS may close a backgrounded app without any further warning.
 function flushSave() {
   persist(true);
-  if (pushTimer && save.sync?.code) {
-    clearTimeout(pushTimer);
-    pushTimer = null;
-    push(save.sync.code, syncPayload(), save.updatedAt, true).catch(() => {});
-  }
+  cloud.flush();
 }
+// Coming back to the game (switching tabs, windows or apps) pulls whatever the
+// other devices did meanwhile.
 platform.onAppState(active => {
   audio.setBackground(!active);
-  if (!active) { pause(); flushSave(); }
+  if (!active) { pause(); flushSave(); } else pull();
 });
 window.addEventListener('pagehide', flushSave);
+window.addEventListener('focus', pull);
+window.addEventListener('pageshow', e => { if (e.persisted) pull(); });
 
 // Android back button / gesture: step back one screen, like any other app.
 platform.onBack(() => {
@@ -1114,7 +1187,7 @@ function frame(now) {
 }
 
 // ?debug exposes the game for testing, e.g. __game.level = 12; __game.startLevel()
-if (new URLSearchParams(location.search).has('debug')) { window.__game = game; window.__audio = audio; window.__renderer = renderer; }
+if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { __game: game, __audio: audio, __renderer: renderer, __save: save, __cloud: cloud });
 
 // Offline play + installable app. Skipped on file:// and plain-http hosts, and
 // in the store app, which already has every file on the phone.
@@ -1125,15 +1198,17 @@ if (!platform.isNative && 'serviceWorker' in navigator && (location.protocol ===
 syncToggles();
 renderer.resize();
 goTitle();
-// A sync link (…#sync=CODE) offers to link this device; otherwise sync on launch.
-{
+// A sync link (…#sync=CODE) offers to link this device, also when it's opened
+// in a tab that already has the game.
+function handleSyncLink() {
   const m = location.hash.match(/sync=([A-Za-z0-9-]+)/);
   const code = m && normalizeCode(m[1]);
-  if (code) {
-    history.replaceState(null, '', location.pathname + location.search);
-    if (save.sync?.code !== code) openSync(code);
-  }
-  if (save.sync?.code) syncNow(true);
+  if (!code) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  if (save.sync?.code !== code) openSync(code);
 }
+handleSyncLink();
+window.addEventListener('hashchange', handleSyncLink);
+if (save.sync?.code) syncNow(true);
 requestAnimationFrame(frame);
 requestAnimationFrame(() => requestAnimationFrame(platform.appReady));
