@@ -16,7 +16,16 @@ Pure HTML/CSS/JS with no build step. All graphics are drawn on a canvas and all 
 
 Progress can follow you between devices with no account: **Sync** on the title screen makes a random 12-character code (shown as text, a link and a QR code). Open the link, scan the code or type it on another device to link it. Saves are stored by the homepage Worker in [`mattlavergne/landing-page`](https://github.com/mattlavergne/landing-page) (`src/apple-api.js`, a Cloudflare D1 table) at `mattlavergne.com/apple/api`. No personal data is stored.
 
-Merging never loses progress: unlocked levels, best stars and scores, upgrades, skins and lifetime stats take the best of both devices. The star balance is a per-device ledger of stars earned and spent, so balances from two devices add up instead of overwriting each other. Choices (equipped skin, settings, nemesis) come from whichever device changed most recently. The client is `js/sync.js`; it syncs on launch, a few seconds after progress changes, and when the page closes.
+**Fast:** changes go up within a second. Another device picks them up when the game opens, comes back to the front, the map opens or a menu is tapped. While a menu is on screen it also checks every 10 seconds (every 30 when the window isn't focused).
+
+**Progress never goes backwards.** Each layer checks this on its own:
+- **Merging only adds.** Unlocked levels, best stars and scores, upgrades, skins and lifetime stats take the best of both devices. The star balance is a per-device ledger, so balances from two devices add up instead of overwriting each other. The daily run and contracts merge by day. Choices (equipped skin, mode, settings, nemesis) come from whichever device changed most recently. The merge gives the same result whichever device runs it, so devices settle instead of re-uploading forever.
+- **Every merge is double-checked** (`safeMerge` in `js/sync.js`) against both saves before it's used. If anything would go down, sync stops and the device keeps its own save.
+- **The server only accepts a save based on its latest revision** (compare-and-swap). It sends back the newer save, and the game merges and retries. It also refuses any save with less progress than the one it has, even from an older game version.
+- **History:** the server keeps the last 20 versions of each save plus the last one of each day for 30 days (`apple_save_history`). Each device keeps its last 10 saves from before a merge replaced them (`the-apple.save.backups` in local storage). A save that can't be read is set aside, never overwritten.
+- **Two tabs** on one computer merge each other's saves instead of overwriting them.
+
+Every top-level save field must be listed in `SAVE_FIELDS` in `js/sync.js`. A new progress field also needs a merge rule and a progress check, on both the game and the server.
 
 ## How it plays
 
@@ -101,6 +110,10 @@ Balance checks (headless bots, run per level):
 - `node tools/circler.mjs [trials]`: "run laps around the border". It should get bitten quickly.
 - `node tools/nemesis.mjs [trials] [level]`: how often the general bot beats a normal snake versus a nemesis of rank 1–5.
 
+Sync checks (Node 22+; they run the real server code from a landing-page checkout next to this repo):
+- `node tools/sync-fuzz.mjs [runs]`: hundreds of random multi-device runs with dropped requests, lost replies, restarts, offline spells, clock skew and an old game version writing stale saves. It checks that no device or cloud save ever goes backwards and that every device ends up with everything. It also injects broken merges and broken uploads to check that the guards stop them.
+- `node tools/sync-e2e.mjs`: the real game in two browsers (phone and computer) plus two tabs. It checks that progress made on one appears on the other without reloading, and that tabs never overwrite each other.
+
 App checks:
 - `npm run build && node tools/native-smoke.mjs [ios|android]`: loads the app build in Chromium with a fake native bridge and checks saving, haptics, the back button, backgrounding and the launch screen.
 - `node tools/make-icons.mjs`: redraws the icons and launch screen from the in-game apple.
@@ -112,7 +125,7 @@ App checks:
 | File | What it does |
 |---|---|
 | `js/config.js` | Worlds, snakes, difficulty curve, perks, upgrades, skins |
-| `js/sync.js` | Cloud sync client and save merging |
+| `js/sync.js` | Cloud sync: save merging, the progress guards, and the sync engine |
 | `js/levels.js` | The 100 Adventure levels: objectives, layout templates, deterministic generation |
 | `js/engine.js` | Simulation: movement, snake AI (greedy / BFS / flood-fill), abilities, pickups (no DOM) |
 | `js/render.js` | Canvas drawing: field, snakes, apple, particles |

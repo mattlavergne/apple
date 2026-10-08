@@ -23,19 +23,21 @@ const safe = (fn, fallback) => {
 };
 
 // ------------------------------------------------------------------ storage
-// Synchronous reads from an in-memory copy, writes go everywhere. In the app,
-// the WebView's localStorage can be wiped by the OS when the phone is low on
-// space, so Preferences (UserDefaults / SharedPreferences, which are part of
-// device backups) holds the real copy and is loaded before the game starts.
+// Synchronous reads and writes, with an in-memory copy for when storage is
+// blocked. Reads go to localStorage first so a tab sees what another tab just
+// saved. In the app, the WebView's localStorage can be wiped by the OS when
+// the phone is low on space, so Preferences (UserDefaults / SharedPreferences,
+// which are part of device backups) holds the real copy and is loaded back
+// before the game starts.
 const PREFIX = 'the-apple.';
 const memory = new Map();
 export const storage = {
   get(key) {
-    if (memory.has(key)) return memory.get(key);
-    let v = null;
-    try { v = localStorage.getItem(key); } catch { /* storage blocked */ }
-    if (v !== null) memory.set(key, v);
-    return v;
+    try {
+      const v = localStorage.getItem(key);
+      if (v !== null) return v;
+    } catch { /* storage blocked */ }
+    return memory.has(key) ? memory.get(key) : null;
   },
   set(key, value) {
     memory.set(key, value);
