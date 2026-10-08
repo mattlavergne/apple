@@ -2,6 +2,7 @@
 import { Game, GRADE_STARS, mulberry32 } from './engine.js';
 import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
+import * as platform from './platform.js';
 import { Input } from './input.js';
 import { load, store } from './save.js';
 import { newCode, formatCode, normalizeCode, pull, push, mergeSaves } from './sync.js';
@@ -14,6 +15,8 @@ import {
 const $ = sel => document.querySelector(sel);
 const $$ = sel => [...document.querySelectorAll(sel)];
 
+// In the app, saved progress comes from native storage, which is asynchronous.
+await platform.ready;
 const save = load();
 const canvas = $('#game');
 const renderer = new Renderer(canvas);
@@ -27,10 +30,8 @@ save.adventure = { unlocked: 1, stars: {}, best: {}, ...(save.adventure || {}) }
 save.updatedAt = save.updatedAt || 0;
 // Stars are a tiny ledger (earned / spent per device) so two synced devices
 // add up instead of overwriting each other. save.stars is the derived balance.
-try {
-  save.device = localStorage.getItem('the-apple.device') || newCode().slice(0, 8);
-  localStorage.setItem('the-apple.device', save.device);
-} catch { save.device = save.device || newCode().slice(0, 8); }
+save.device = platform.storage.get('the-apple.device') || newCode().slice(0, 8);
+platform.storage.set('the-apple.device', save.device);
 if (!save.ledger) save.ledger = { [save.device]: { e: save.stars || 0, s: 0 } };
 const myLedger = () => (save.ledger[save.device] ||= { e: 0, s: 0 });
 const starBalance = () => Object.values(save.ledger).reduce((t, l) => t + (l.e || 0) - (l.s || 0), 0);
@@ -45,10 +46,11 @@ const starStr = n => '\u2605'.repeat(n) + '\u2606'.repeat(3 - n);
 save.stats.nemesesBeaten = save.stats.nemesesBeaten || 0;
 
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-const canVibrate = typeof navigator.vibrate === 'function';
 document.documentElement.classList.toggle('is-touch', isTouch);
-document.documentElement.classList.toggle('has-haptics', canVibrate && isTouch);
-const buzz = pattern => { if (canVibrate && save.settings.haptics) try { navigator.vibrate(pattern); } catch { /* unsupported */ } };
+document.documentElement.classList.toggle('has-haptics', platform.hasHaptics && isTouch);
+// feel: light | medium | heavy | success | warning | error (native haptics);
+// pattern: the browser vibration fallback.
+const buzz = (feel, pattern) => { if (save.settings.haptics) platform.haptic(feel, pattern); };
 
 // ------------------------------------------------------------------ daily run
 // Everyone gets the same seeded levels, events and perk offers each local day.
@@ -96,7 +98,7 @@ const syncPayload = () => { const { sync, device, ...rest } = save; return rest;
 function schedulePush() {
   if (!save.sync?.code) return;
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(() => syncNow(true), 4000);
+  pushTimer = setTimeout(() => { pushTimer = null; syncNow(true); }, 4000);
 }
 async function syncNow(quiet = false) {
   const code = save.sync?.code;
@@ -132,14 +134,14 @@ function setSyncStatus(msg) {
   const el = document.getElementById('sync-status');
   if (el) el.textContent = msg;
 }
-const syncLink = code => `${location.origin}${location.pathname}#sync=${code}`;
+const syncLink = code => platform.webLink(`#sync=${code}`);
 
 let qrLib = null;
 function loadQr() {
   if (qrLib) return qrLib;
   qrLib = new Promise((resolve, reject) => {
     const sc = document.createElement('script');
-    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+    sc.src = 'vendor/qrcode-1.4.4.min.js';
     sc.onload = () => resolve(window.qrcode);
     sc.onerror = reject;
     document.head.appendChild(sc);
@@ -443,7 +445,7 @@ function contractProgress(id, value, max = false) {
       const c = CONTRACTS.find(x => x.id === it.id);
       toast(`\u2705 Contract done: ${c.text(it.target)} +${reward}\u2605`);
       audio.play('grade');
-      buzz([20, 30, 20]);
+      buzz('success', [20, 30, 20]);
     }
   }
   if (!cs.bonus && cs.items.every(it => it.done)) {
@@ -713,7 +715,7 @@ function onEvent(name, data, g) {
       break;
     case 'kill':
       save.stats.snakes++;
-      buzz([25, 40, 25]);
+      buzz('medium', [25, 40, 25]);
       if (data.cause === 'wall' || data.cause === 'rock' || data.cause === 'hedge') contractProgress('walls', 1);
       if (data.cause === 'self') contractProgress('self', 1);
       if (data.cause === 'tangle') contractProgress('tangle', 1);
@@ -725,30 +727,30 @@ function onEvent(name, data, g) {
       save.nemesis = null;
       save.stats.nemesesBeaten++;
       persist(true);
-      buzz([60, 40, 60, 40, 120]);
+      buzz('success', [60, 40, 60, 40, 120]);
       break;
     case 'hunger':
-      buzz(data === 2 ? [40, 30, 40, 30, 40] : 30);
+      buzz('warning', data === 2 ? [40, 30, 40, 30, 40] : 30);
       break;
     case 'hedge':
-      buzz([90, 40, 90]);
+      buzz('heavy', [90, 40, 90]);
       break;
     case 'bite':
       hud.bites.classList.remove('hit'); void hud.bites.offsetWidth; hud.bites.classList.add('hit');
-      buzz([80, 50, 80]);
+      buzz('error', [80, 50, 80]);
       break;
     case 'nerve':
       if (data > 0) {
-        audio.playNear(data); buzz(12);
+        audio.playNear(data); buzz('light', 12);
         contractProgress('close', 1);
         contractProgress('nerve', data, true);
       }
       break;
     case 'quake':
-      buzz([120, 40, 60]);
+      buzz('heavy', [120, 40, 60]);
       break;
     case 'scratch':
-      buzz(30);
+      buzz('medium', 30);
       contractProgress('scratch', 1);
       break;
     case 'bump':
@@ -906,11 +908,8 @@ async function shareRun() {
     'Can you beat it? mattlavergne.com/apple',
   ].join('\n');
   try {
-    if (navigator.share && isTouch) { await navigator.share({ text }); return; }
-    await navigator.clipboard.writeText(text);
-    toast('Result copied! Paste it anywhere.');
-  } catch (e) {
-    if (e && e.name === 'AbortError') return;
+    if (await platform.share({ text }) === 'copied') toast('Result copied! Paste it anywhere.');
+  } catch {
     toast('Couldn\u2019t copy. Your browser blocked it.');
   }
 }
@@ -957,8 +956,13 @@ $('#sync-link').addEventListener('click', async () => {
 });
 $('#sync-now').addEventListener('click', async () => { audio.play('click'); await syncNow(); renderSync(); });
 $('#sync-copy').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText(syncLink(save.sync.code)); toast('Sync link copied!'); } catch { toast(formatCode(save.sync.code)); }
+  // Phones open the share sheet (Messages, AirDrop, Copy...) instead.
+  const code = save.sync.code;
+  try {
+    if (await platform.share({ text: `My The Apple sync code: ${formatCode(code)}`, url: syncLink(code) }) === 'copied') toast('Sync link copied!');
+  } catch { toast(formatCode(code)); }
 });
+if (platform.sharesWithSheet) $('#sync-copy').textContent = 'Send link';
 $('#sync-stop').addEventListener('click', () => {
   // Progress stays on this device; it just stops talking to the cloud.
   delete save.sync;
@@ -975,7 +979,7 @@ $('#contracts').addEventListener('click', e => {
 $('#tgl-haptics').addEventListener('click', () => {
   save.settings.haptics = !save.settings.haptics;
   persist(); syncToggles();
-  buzz(30);
+  buzz('light', 30);
 });
 for (const b of $$('[data-controls]')) b.addEventListener('click', () => {
   save.settings.controls = save.settings.controls === 'swipe' ? 'joystick' : 'swipe';
@@ -1043,13 +1047,35 @@ for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
   window.addEventListener(type, () => { if (!audio.isRunning()) audio.unlock(); }, { capture: true, passive: true });
 }
 
-document.addEventListener('visibilitychange', () => {
-  audio.setBackground(document.hidden);
-  if (document.hidden) { pause(); persist(true); }
-});
-window.addEventListener('pagehide', () => {
+// Unsaved progress and unsynced changes go out the moment the game leaves the
+// screen: the OS may close a backgrounded app without any further warning.
+function flushSave() {
   persist(true);
-  if (save.sync?.code) push(save.sync.code, syncPayload(), save.updatedAt, true).catch(() => {});
+  if (pushTimer && save.sync?.code) {
+    clearTimeout(pushTimer);
+    pushTimer = null;
+    push(save.sync.code, syncPayload(), save.updatedAt, true).catch(() => {});
+  }
+}
+platform.onAppState(active => {
+  audio.setBackground(!active);
+  if (!active) { pause(); flushSave(); }
+});
+window.addEventListener('pagehide', flushSave);
+
+// Android back button / gesture: step back one screen, like any other app.
+platform.onBack(() => {
+  const open = $('.screen.show');
+  const id = open ? open.id.replace('screen-', '') : '';
+  if (screen === 'play') pause();
+  else if (screen === 'paused') resume();
+  else if (id === 'level') { audio.play('click'); show('map'); }
+  else if (id === 'map') { audio.play('click'); goTitle(); }
+  else if (id === 'result' || (id === 'over' && runKind === 'adventure')) openMap();
+  else if (id === 'over') goTitle();
+  else if (['help', 'orchard', 'endless', 'sync'].includes(id)) $(`#screen-${id} [data-back]`).click();
+  else if (id === 'title') platform.leaveApp();
+  // A perk pick waits for a choice.
 });
 
 let resizeTimer = null;
@@ -1088,10 +1114,11 @@ function frame(now) {
 }
 
 // ?debug exposes the game for testing, e.g. __game.level = 12; __game.startLevel()
-if (new URLSearchParams(location.search).has('debug')) { window.__game = game; window.__audio = audio; }
+if (new URLSearchParams(location.search).has('debug')) { window.__game = game; window.__audio = audio; window.__renderer = renderer; }
 
-// Offline play + installable app. Skipped on file:// and plain-http hosts.
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+// Offline play + installable app. Skipped on file:// and plain-http hosts, and
+// in the store app, which already has every file on the phone.
+if (!platform.isNative && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 
@@ -1109,3 +1136,4 @@ goTitle();
   if (save.sync?.code) syncNow(true);
 }
 requestAnimationFrame(frame);
+requestAnimationFrame(() => requestAnimationFrame(platform.appReady));

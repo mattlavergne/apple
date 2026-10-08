@@ -2,7 +2,7 @@
 
 **Snake, flipped.** You're the apple. Lead the snake into walls, rocks, brambles, other snakes or its own tail. Whatever you do, don't get eaten.
 
-Pure HTML/CSS/JS with no build step and no dependencies. All graphics are drawn on a canvas and all sounds are synthesized, so there are no image or audio files to load.
+Pure HTML/CSS/JS with no build step. All graphics are drawn on a canvas and all sounds are synthesized, so there are no image or audio files to load. The same files also run the App Store / Google Play app (see [STORE.md](STORE.md)).
 
 ## Modes
 
@@ -62,8 +62,12 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 ## Phones
 
 - **Swipe** (default on touch screens): swipe to roll, swipe again to turn (even mid-drag), tap to stop. The apple also stops when it bumps into something. A hold-to-steer **joystick** is available in the menu.
-- Haptics on bites, crashes, close calls and quakes (Android; iOS browsers don't expose vibration).
+- Haptics on bites, crashes, close calls and quakes (Android browsers and both store apps; Safari on iPhone has no vibration).
 - Installable as an app with offline play (`manifest.webmanifest` + `sw.js`). The service worker is network-first: you always get the latest version when online, and the cached copy only when offline.
+
+## Store app
+
+`ios/` and `android/` are [Capacitor](https://capacitorjs.com) projects that wrap these same files. `npm install && npm run sync` copies the game in (via `tools/build-www.mjs`), then build in Xcode or Android Studio. Anything device-specific (saving, haptics, sharing, back button, backgrounding) goes through `js/platform.js`, which falls back to plain web APIs in a browser, so features only need to be written once. [STORE.md](STORE.md) has the full release checklist.
 
 ## Hosting
 
@@ -97,6 +101,10 @@ Balance checks (headless bots, run per level):
 - `node tools/circler.mjs [trials]`: "run laps around the border". It should get bitten quickly.
 - `node tools/nemesis.mjs [trials] [level]`: how often the general bot beats a normal snake versus a nemesis of rank 1–5.
 
+App checks:
+- `npm run build && node tools/native-smoke.mjs [ios|android]`: loads the app build in Chromium with a fake native bridge and checks saving, haptics, the back button, backgrounding and the launch screen.
+- `node tools/make-icons.mjs`: redraws the icons and launch screen from the in-game apple.
+
 `node tools/sim.mjs [runs] [mode] [dailySeed]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
 
 ## Code map
@@ -111,4 +119,5 @@ Balance checks (headless bots, run per level):
 | `js/main.js` | Screens, HUD, game loop, save hooks |
 | `js/input.js` | Keyboard and touch joystick |
 | `js/audio.js` | WebAudio sound effects and generated music |
-| `js/save.js` | localStorage progress |
+| `js/save.js` | Saved progress |
+| `js/platform.js` | Browser vs. store app: storage, haptics, sharing, back button, app lifecycle |

@@ -1,4 +1,5 @@
 // Tiny synthesized sound effects and background music. No audio files needed.
+import { isNative } from './platform.js';
 
 let ctx = null, master, sfxBus, musicBus;
 let sfxOn = true, musicOn = true;
@@ -97,11 +98,14 @@ export function unlock() {
   if (ctx.state !== 'running') ctx.resume().catch(() => {});
   if (primed) return;
   primed = true;
-  // iPhones mute web audio with the ringer switch unless the page says it is
-  // media playback (Safari 16.4+). Older iOS gets the same effect from a
-  // silent looping <audio> element.
+  // In Safari, iPhones mute web audio with the ringer switch unless the page
+  // says it is media playback (Safari 16.4+). Older iOS gets the same effect
+  // from a silent looping <audio> element. The store app instead behaves like
+  // other games: it follows the ringer switch and mixes with the player's own
+  // music instead of stopping it.
   try {
-    if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    if (isNative) { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; }
+    else if (navigator.audioSession) navigator.audioSession.type = 'playback';
     else {
       const el = new Audio(silentWavUrl());
       el.loop = true;
