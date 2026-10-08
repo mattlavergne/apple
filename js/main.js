@@ -3,6 +3,8 @@ import { Game, GRADE_STARS, mulberry32 } from './engine.js';
 import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
 import * as platform from './platform.js';
+import { RELEASE } from './build-info.js';
+import { FREE_LEVELS, PRODUCT_ID, FALLBACK_PRICE, CHILD_DIRECTED, AD_UNITS } from './monetization.js';
 import { Input } from './input.js';
 import { KEY as SAVE_KEY, load, store, readStored, backup, withDefaults } from './save.js';
 import { newCode, formatCode, normalizeCode, CloudSync, safeMerge, stableStringify, regressions, SAVE_FIELDS } from './sync.js';
@@ -17,6 +19,7 @@ const $$ = sel => [...document.querySelectorAll(sel)];
 
 // In the app, saved progress comes from native storage, which is asynchronous.
 await platform.ready;
+platform.store.load();
 const save = load();
 const canvas = $('#game');
 const renderer = new Renderer(canvas);
@@ -295,6 +298,7 @@ function startDemo() {
 // ------------------------------------------------------------------ screens
 function show(id) {
   $$('.screen').forEach(s => s.classList.toggle('show', s.id === 'screen-' + id));
+  updateAds();
 }
 function hideScreens() {
   $$('.screen').forEach(s => s.classList.remove('show'));
@@ -306,8 +310,56 @@ function setPlaying(on) {
   $('#hud').classList.toggle('hidden', !on);
   $('#abilities').classList.toggle('hidden', !on);
   input.enabled = on;
+  updateAds();
   requestAnimationFrame(() => renderer.resize());
 }
+
+// ------------------------------------------------------------------ full game & ads
+// Store app: levels 1-20 and the Daily Run are free with ads; one purchase
+// unlocks the rest and removes the ads (js/monetization.js). The web version
+// has everything and no ads.
+const fullGame = () => platform.store.owned;
+const forSale = n => !fullGame() && n > FREE_LEVELS;
+// The banner only ever shows on menus: never while playing or paused, and
+// not over the purchase screen.
+function updateAds() {
+  const menu = screen !== 'play' && screen !== 'paused' && !$('#screen-full').classList.contains('show');
+  platform.ads.banner(platform.hasStore && !fullGame() && menu);
+}
+let paywallBack = 'title';
+function openPaywall(reason) {
+  audio.unlock();
+  const open = $('.screen.show');
+  paywallBack = open && open.id !== 'screen-full' ? open.id.replace('screen-', '') : 'title';
+  $('#full-why').textContent = reason === 'endless'
+    ? 'Endless mode is part of the full game.'
+    : `You\u2019ve got levels 1\u2013${FREE_LEVELS}. The full game has ${ADVENTURE_LEVELS - FREE_LEVELS} more, across ${(ADVENTURE_LEVELS - FREE_LEVELS) / LEVELS_PER_WORLD} more worlds.`;
+  $('#full-status').textContent = '';
+  renderPrice();
+  show('full');
+  const c = $('#full-apple').getContext('2d');
+  c.clearRect(0, 0, 120, 120);
+  drawApple(c, 60, 66, 40, { skin: skin(), time: 0.6, look: { x: 0.3, y: 0.2 } });
+}
+function closePaywall() {
+  if (paywallBack === 'map') { renderMap(); show('map'); } else if (paywallBack === 'title') { renderTitle(); show('title'); } else show(paywallBack);
+}
+function renderPrice() {
+  $('#full-buy').textContent = `Unlock for ${platform.store.price}`;
+}
+function renderFullGame() {
+  document.documentElement.classList.toggle('full-game', fullGame());
+  $('#btn-endless').innerHTML = fullGame() ? '&#8734; Endless' : '&#8734; Endless <span class="lock">&#128274;</span>';
+}
+platform.store.onChange(what => {
+  renderPrice();
+  if (what === 'price') { if (screen === 'map') refreshScreen(); return; }
+  platform.ads.removeBanner();
+  renderFullGame();
+  if ($('#screen-full').classList.contains('show')) closePaywall();
+  refreshScreen();
+  toast('\ud83c\udf89 Full game unlocked. Thanks for supporting The Apple!');
+});
 
 function goTitle() {
   screen = 'title';
@@ -439,8 +491,15 @@ function renderMap() {
     const first = w * LEVELS_PER_WORLD + 1;
     let wStars = 0;
     for (let i = 0; i < LEVELS_PER_WORLD; i++) wStars += A.stars[first + i] || 0;
+    if (first === FREE_LEVELS + 1 && forSale(first)) {
+      const card = document.createElement('button');
+      card.className = 'map-unlock';
+      card.innerHTML = `<b>\ud83d\udd13 Unlock the full game</b><small>${ADVENTURE_LEVELS - FREE_LEVELS} more levels, Endless mode, no ads \u00b7 ${platform.store.price}</small>`;
+      card.addEventListener('click', () => { audio.play('click'); openPaywall('level'); });
+      wrap.appendChild(card);
+    }
     const sec = document.createElement('section');
-    sec.className = 'map-world' + (W.dark ? ' dark' : '') + (first > A.unlocked ? ' locked' : '');
+    sec.className = 'map-world' + (W.dark ? ' dark' : '') + (first > A.unlocked ? ' locked' : '') + (forSale(first) ? ' paid' : '');
     sec.style.background = `linear-gradient(${W.bg[0]}, ${W.bg[1]})`;
     const h = LEVELS_PER_WORLD * MAP_ROW;
     const pts = [];
@@ -451,7 +510,7 @@ function renderMap() {
       pts.push(`${x},${y}`);
       const d = adventureLevel(n);
       const st = A.stars[n] || 0;
-      const cls = ['node', d.boss ? 'boss' : '', n > A.unlocked ? 'locked' : '', n === A.unlocked ? 'current' : '', st ? 'done' : ''].join(' ');
+      const cls = ['node', d.boss ? 'boss' : '', n > A.unlocked ? 'locked' : '', n === A.unlocked ? 'current' : '', st ? 'done' : '', forSale(n) ? 'paid' : ''].join(' ');
       nodes += `<button class="${cls}" data-level="${n}" style="left:${x}%;top:${y}px" aria-label="Level ${n}${n > A.unlocked ? ' (locked)' : ''}">
         ${d.boss ? '<span class="crown">\ud83d\udc51</span>' : ''}<b>${n > A.unlocked ? '\ud83d\udd12' : n}</b>
         <span class="nstars">${st ? starStr(st) : n <= A.unlocked ? OBJECTIVE_ICON[d.objective.type] : ''}</span>
@@ -467,6 +526,7 @@ function renderMap() {
 }
 
 function openLevelCard(n) {
+  if (forSale(n)) { openPaywall('level'); return; }
   advLevel = n;
   const d = adventureLevel(n), A = save.adventure;
   $('#lc-world').textContent = `World ${d.world + 1} \u00b7 ${WORLDS[d.world].name}`;
@@ -509,6 +569,14 @@ function showResult(g) {
   if (nextWorld) un.textContent = `\ud83c\udf0d New world unlocked: ${WORLDS[Math.floor(n / LEVELS_PER_WORLD)].name}!`;
   $('#res-next').classList.toggle('hidden', n >= ADVENTURE_LEVELS);
   lastRun = { adv: n, stars, level: n, score, grades: g.grades.slice(), nerve: g.nerveBest, kills: { ...g.kills }, mode: 'classic' };
+  const bonus = Math.max(3, g.starsRun);
+  const offer = platform.hasStore && !fullGame() && platform.ads.ready;
+  $('#res-bonus').classList.toggle('hidden', !offer);
+  if (offer) {
+    $('#res-bonus').dataset.stars = bonus;
+    $('#res-bonus').innerHTML = `&#127916; Watch an ad: +${bonus}&#9733;`;
+    platform.ads.prepareRewarded();
+  }
   if (stars === 3) audio.play('grade');
   show('result');
 }
@@ -1013,13 +1081,59 @@ async function shareRun() {
 
 // ------------------------------------------------------------------ wiring
 $('#btn-play').addEventListener('click', () => { audio.unlock(); audio.play('click'); openMap(); });
-$('#btn-endless').addEventListener('click', () => { audio.unlock(); audio.play('click'); returnTo = 'title'; renderTitle(); show('endless'); });
+$('#btn-endless').addEventListener('click', () => {
+  audio.unlock(); audio.play('click');
+  if (!fullGame()) { openPaywall('endless'); return; }
+  returnTo = 'title'; renderTitle(); show('endless');
+});
+$('#full-buy').addEventListener('click', async () => {
+  audio.play('click');
+  const btn = $('#full-buy');
+  btn.disabled = true;
+  $('#full-status').textContent = 'Opening the store\u2026';
+  try {
+    const r = await platform.store.buy();
+    $('#full-status').textContent = r === 'pending' ? 'Waiting for the purchase to be approved. It unlocks by itself when it is.' : '';
+  } catch (e) {
+    $('#full-status').textContent = e.message || 'The purchase didn\u2019t go through.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+async function restorePurchase() {
+  audio.play('click');
+  $('#full-status').textContent = 'Checking your purchases\u2026';
+  const ok = await platform.store.restore();
+  if (!ok) {
+    const msg = 'No purchase found for this store account.';
+    if ($('#screen-full').classList.contains('show')) $('#full-status').textContent = msg; else toast(msg);
+  }
+}
+$('#full-restore').addEventListener('click', restorePurchase);
+$('#help-restore').addEventListener('click', restorePurchase);
+$('#full-close').addEventListener('click', () => { audio.play('click'); closePaywall(); });
+// Optional: watch an ad for bonus stars after a level.
+$('#res-bonus').addEventListener('click', async () => {
+  const btn = $('#res-bonus'), bonus = +btn.dataset.stars;
+  btn.disabled = true;
+  audio.setBackground(true);
+  const ok = await platform.ads.rewarded();
+  audio.setBackground(false);
+  btn.classList.add('hidden');
+  btn.disabled = false;
+  if (!ok) { toast('No bonus this time.'); return; }
+  earnStars(bonus);
+  persist(true);
+  audio.play('grade');
+  toast(`+${bonus}\u2605 bonus stars!`);
+});
 $('#btn-endless-go').addEventListener('click', () => { audio.play('click'); startRun('normal'); });
 $('#map-back').addEventListener('click', () => { audio.play('click'); goTitle(); });
 $('#map-scroll').addEventListener('click', e => {
   const b = e.target.closest('.node');
   if (!b) return;
   const n = +b.dataset.level;
+  if (forSale(n)) { audio.play('click'); openPaywall('level'); return; }
   if (n > save.adventure.unlocked) { audio.play('nope'); toast('Beat the level before it to unlock this one.'); return; }
   audio.play('click');
   openLevelCard(n);
@@ -1177,6 +1291,7 @@ platform.onBack(() => {
   if (screen === 'play') pause();
   else if (screen === 'paused') resume();
   else if (id === 'level') { audio.play('click'); show('map'); }
+  else if (id === 'full') closePaywall();
   else if (id === 'map') { audio.play('click'); goTitle(); }
   else if (id === 'result' || (id === 'over' && runKind === 'adventure')) openMap();
   else if (id === 'over') goTitle();
@@ -1240,8 +1355,15 @@ if (!platform.isNative && 'serviceWorker' in navigator && (location.protocol ===
 }
 
 syncToggles();
+document.documentElement.classList.toggle('has-store', platform.hasStore);
+renderFullGame();
 renderer.resize();
 goTitle();
+if (platform.hasStore) {
+  platform.store.init({ productId: PRODUCT_ID, price: FALLBACK_PRICE });
+  renderPrice();
+  if (!fullGame()) platform.ads.init({ release: RELEASE, units: AD_UNITS, childDirected: CHILD_DIRECTED }).then(updateAds);
+}
 // A sync link (…#sync=CODE) offers to link this device, also when it's opened
 // in a tab that already has the game.
 function handleSyncLink() {

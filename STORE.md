@@ -28,7 +28,7 @@ After changing the game, `node tools/native-smoke.mjs` (after `npm run build`) c
 
 1. **Store name.** The home-screen label is "The Apple" (`capacitor.config.json`). The store listing name is set separately in App Store Connect / Play Console. "The Apple" alone is hard to find in search (Apple's own apps own that query) and invites a trademark question in review. A listing name that makes the fruit and the game obvious, like *The Apple: Snake in Reverse*, avoids both.
 2. **App ID.** `com.mattlavergne.theapple`. It can never change after the first upload. Change it now (in `capacitor.config.json`, `android/app/build.gradle` and the Xcode project) if you want something else.
-3. **Money.** Decide before launch, since it changes the privacy answers and age rating. With a kid-friendly audience, the cleanest options are paid upfront, or free with a one-time "full game" unlock (e.g. worlds 1–2 free). Ads mean a tracking prompt on iOS, a consent form in Europe and different privacy labels. Selling stars or upgrades for real money in a game kids play draws extra scrutiny. In-app purchases would be a plugin wired through `js/platform.js`.
+3. **Money: decided.** The app is free with ads, and one purchase unlocks the full game. It's built; see [Money](#money-free-with-ads-one-purchase) for the account setup it needs.
 4. **iPad.** The app currently supports iPad (it plays well in landscape). That means also uploading iPad screenshots. To skip that, set Targeted Device Family to iPhone only in Xcode.
 5. **Kids category: probably not.** The game is fine for a 4+ rating without being *in* Apple's Kids category. That category adds rules, such as a parental gate before any link that leaves the app (the privacy link counts).
 
@@ -71,6 +71,78 @@ Before each release, bump the version: `versionCode` / `versionName` in `android
 
 **Store listing:** the copy, screenshots and Play feature graphic are ready in [`store/`](store/listing.md). `node tools/store-shots.mjs` regenerates the images from the current game.
 
+## Money: free with ads, one purchase
+
+**What players get:**
+- **Free:** Adventure levels 1–20 and the Daily Run.
+  - A banner ad sits at the bottom of menu screens. It never shows during play, while paused or on the purchase screen.
+  - The level-complete screen offers an optional ad for bonus stars.
+- **The full game ($2.99, one time):** all 100 levels, Endless mode, and no ads.
+  - Level 21, the locked worlds and the Endless button lead to the purchase screen, which has Buy, *Restore purchase* and *Not now*. *Restore purchase* is also on the How to play screen; Apple requires a restore option.
+- **The web version** (your test copy) has everything and no ads.
+
+**Where the settings live:**
+- Everything is in [`js/monetization.js`](js/monetization.js): the free level count, product ID, fallback price, ad unit IDs and the child-directed switch.
+- The code is `js/platform.js` (`store`, `ads`).
+- Purchases use the [`@capgo/native-purchases`](https://github.com/Cap-go/capacitor-native-purchases) plugin, which talks to Apple and Google directly with no third-party purchase service. Ads use [`@capacitor-community/admob`](https://github.com/capacitor-community/admob).
+
+**Safety rules:**
+- **A purchase is only ever granted, never taken away by the app.** If the store is offline or signed out, a paying player keeps the full game.
+- **A reinstall restores the purchase automatically** from the store account.
+- **Store builds can't ship test ads.** `npm run release:ios` and `npm run release:android` refuse to build while any AdMob ID is still one of Google's test IDs.
+- **Test builds always show Google's test ads.** Never tap real ads in your own app: Google bans accounts for it.
+
+### Ads: set up AdMob
+
+1. Sign up at [admob.google.com](https://admob.google.com) with your Google account, and add payment details there.
+2. *Apps → Add app*, twice (Android, then iOS). Each one gets an **app ID**, which looks like `ca-app-pub-1234…~5678`.
+3. In each app, create two ad units: **Banner** and **Rewarded**. Each gets an **ad unit ID**, which looks like `ca-app-pub-1234…/5678`.
+4. Put your IDs in three places:
+   - the four ad unit IDs → `js/monetization.js` (`AD_UNITS`);
+   - the Android app ID → `android/app/src/main/res/values/strings.xml` (`admob_app_id`);
+   - the iOS app ID → `ios/App/App/Info.plist` (`GADApplicationIdentifier`).
+5. **app-ads.txt:** AdMob gives you a one-line file. It must be served at `https://mattlavergne.com/app-ads.txt`, which means the website listed on your store pages. Send me the line and I'll add it to Landing-Page's `public/`.
+6. **Kids:** if the Play Console *Target audience* includes under-13s, set `CHILD_DIRECTED = true` in `js/monetization.js`. Google then only shows kid-safe ads, which means fewer ads and less money.
+
+### Purchases: set up the $2.99 unlock
+
+The product ID is the same in both stores: `com.mattlavergne.theapple.full`.
+
+- **App Store Connect:**
+  1. *Business*: sign the Paid Apps agreement and add banking and tax details. Purchases don't work until this is done.
+  2. Open the app, then *In-App Purchases → + → Non-Consumable*.
+  3. Use the product ID above, price $2.99, a short name and description, and a screenshot of the purchase screen for the reviewer.
+  4. Submit it together with the app version.
+- **Play Console:**
+  1. Set up a payments profile.
+  2. Upload a build to *Internal testing* first. Google only lets you create products once a build with billing is uploaded.
+  3. *Monetize → Products → In-app products → Create product*, with the same ID and $2.99. Activate it.
+- **Testing purchases without paying:**
+  - *iPhone:* purchases in TestFlight builds are free sandbox purchases.
+  - *Android:* add your Google account under *Settings → License testing*, and install from the internal testing track.
+
+## Test vs. production
+
+There are three kinds of builds:
+
+| | Who | Ads | Purchases | Sync server |
+|---|---|---|---|---|
+| **Web** (GitHub Pages, mattlavergne.com/apple) | You, for trying changes | None, everything unlocked. Add `?store` to the address to preview the free app's paywall and ad layout | Pretend | Production |
+| **Test app builds** (`npm run android` / `npm run ios`, TestFlight, Play internal testing) | You and your testers | Google's test ads | Store sandbox (free) | Production |
+| **Store builds** (`npm run release:android` / `npm run release:ios`) | Everyone | Real | Real | Production |
+
+**Every release goes the same way:**
+1. Check the change on the web version.
+2. Make a test build and play it on your phone through TestFlight or Play internal testing.
+3. Make the store build and submit it.
+4. On Google Play, use a staged rollout (for example 20% of players first).
+
+**There's no separate test sync server, on purpose:**
+- **Server changes are already tested before they deploy.** `tools/sync-fuzz.mjs` and `tools/sync-e2e.mjs` run the real server code against a real database.
+- **A bad server deploy can be undone in one click:** Cloudflare → Workers → *Deployments* → *Rollback*.
+- **Saves can be restored too.** D1 can restore the whole database to an earlier point in time (*Time Travel*), and each save also keeps its own history.
+- **When it's worth adding one:** if the sync server grows (accounts, leaderboards), add a staging copy of the Worker with its own database then.
+
 ## Store accounts and review
 
 - **Apple Developer Program:** $99/year. Review usually takes a day or two.
@@ -81,9 +153,11 @@ Before each release, bump the version: `versionCode` / `versionName` in `android
 - Play: phone screenshots, a 512×512 icon (`assets/icon-512.png`) and a 1024×500 feature graphic.
 - Short and full descriptions, and an age-rating questionnaire (expect cartoon violence: snakes crash).
 
-**Privacy answers** (if nothing above changes):
-- **Apple App Privacy:** if you count Sync, *Gameplay Content*, used for *App Functionality*, *not linked to the user* and *not used for tracking*. Otherwise *Data Not Collected*.
-- **Google Data safety:** the same. Optional game progress is stored in the cloud, encrypted in transit (HTTPS), with no account and no sharing with third parties.
+**Privacy answers:**
+- **Sync:** *Gameplay Content*, used for *App Functionality*, *not linked to the user*, *not used for tracking*.
+- **Ads (AdMob):** the data Google's SDK collects. Copy it from Google's own guides rather than guessing: [App Store](https://developers.google.com/admob/ios/privacy/data-disclosure) and [Google Play](https://developers.google.com/admob/android/privacy/play-data-disclosure). The app never asks for tracking permission, and ads are never personalized.
+- **Google Play:** *Contains ads: Yes*. The *Advertising ID* declaration is *Yes* (Google's ad SDK uses it).
+- **Purchases:** handled by Apple and Google; nothing for you to declare.
 
 ## Test on real phones before submitting
 

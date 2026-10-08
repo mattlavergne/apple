@@ -134,7 +134,7 @@
       </div>
       <p class="hint">Snakes grow longer every few seconds, so the longer you survive, the less room they have.</p>
       <button class="btn btn-red" data-back>Let's go!</button>
-      <p class="legal"><a href="https://mattlavergne.github.io/apple/privacy.html" target="_blank" rel="noopener">Privacy policy</a> &middot; no ads, no tracking</p>
+      <p class="legal"><a href="https://mattlavergne.github.io/apple/privacy.html" target="_blank" rel="noopener">Privacy policy</a><span class="store-only"> &middot; <button id="help-restore" class="linkish">Restore purchase</button></span></p>
     </div>
   </section>
 
@@ -233,6 +233,7 @@
       <div class="grade-detail" id="res-detail"></div>
       <div class="stats" id="res-stats"></div>
       <div id="res-unlock" class="res-unlock hidden"></div>
+      <button id="res-bonus" class="btn btn-gold res-bonus hidden" data-stars="3">&#127916; Watch an ad: +3&#9733;</button>
       <div class="row"><button id="res-next" class="btn btn-big btn-red">Next level &#9654;</button></div>
       <div class="row">
         <button id="res-replay" class="btn btn-green">&#8635; Replay</button>
@@ -275,6 +276,27 @@
         <button id="btn-over-orchard" class="btn btn-green">&#127795; Orchard</button>
         <button id="btn-over-menu" class="btn btn-blue">Menu</button>
         <button id="btn-share" class="btn btn-gold">&#128228; Share</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Full game (store app only) -->
+  <section id="screen-full" class="screen">
+    <div class="panel narrow full-panel">
+      <canvas id="full-apple" width="120" height="120" aria-hidden="true"></canvas>
+      <h2>The full game</h2>
+      <p class="lead" id="full-why"></p>
+      <ul class="full-list">
+        <li>&#127757; All 100 levels across 10 worlds</li>
+        <li>&#8734;&#65039; Endless mode, with your nemesis</li>
+        <li>&#128683; No more ads</li>
+        <li>&#9989; One-time purchase, no subscription</li>
+      </ul>
+      <button id="full-buy" class="btn btn-big btn-red">Unlock</button>
+      <p class="full-status" id="full-status" role="status"></p>
+      <div class="row small">
+        <button id="full-restore" class="toggle">Restore purchase</button>
+        <button id="full-close" class="toggle">Not now</button>
       </div>
     </div>
   </section>

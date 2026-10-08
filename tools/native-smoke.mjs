@@ -27,7 +27,7 @@ const server = createServer((req, res) => {
 const base = `http://localhost:${server.address().port}/`;
 
 // The fake native side: plugin headers, promise calls and listener callbacks.
-const fakeBridge = ({ os, seed }) => {
+const fakeBridge = ({ os, seed, storeOwned = false }) => {
   if (os === 'android') window.androidBridge = { postMessage() {} };
   else window.webkit = { messageHandlers: { bridge: { postMessage() {} } } };
   const calls = (window.__calls = []);
@@ -37,11 +37,27 @@ const fakeBridge = ({ os, seed }) => {
   const header = (name, promise, callback = ['addListener']) => ({
     name, methods: [...promise.map(m => ({ name: m, rtype: 'promise' })), ...callback.map(m => ({ name: m, rtype: 'callback' }))],
   });
+  // The store account: purchases survive reloads, like a real Apple ID / Google account.
+  if (storeOwned && !localStorage.getItem('__store_owned')) localStorage.setItem('__store_owned', '1');
+  const FULL = 'com.mattlavergne.theapple.full';
+  const purchase = { productIdentifier: FULL, purchaseState: '1', transactionId: 't1', purchaseDate: '2026-10-08' };
+  const fire = (name, data) => setTimeout(() => (listeners[name] || []).forEach(cb => cb(data)), 0);
   const impl = {
     Preferences: {
       get: o => ({ value: prefs.has(o.key) ? prefs.get(o.key) : null }),
       set: o => { prefs.set(o.key, o.value); },
       keys: () => ({ keys: [...prefs.keys()] }),
+    },
+    AdMob: {
+      requestConsentInfo: () => ({ status: 'NOT_REQUIRED', canRequestAds: true, isConsentFormAvailable: false }),
+      showBanner: () => fire('AdMob.bannerAdSizeChanged', { width: 390, height: 50 }),
+      prepareRewardVideoAd: o => ({ adUnitId: o.adId }),
+      showRewardVideoAd: () => ({ type: 'reward', amount: 1 }),
+    },
+    NativePurchases: {
+      getProducts: () => ({ products: [{ identifier: FULL, priceString: '$2.99', price: 2.99, currencyCode: 'USD' }] }),
+      getPurchases: () => ({ purchases: localStorage.getItem('__store_owned') ? [purchase] : [] }),
+      purchaseProduct: () => { localStorage.setItem('__store_owned', '1'); return purchase; },
     },
   };
   window.Capacitor = {
@@ -51,6 +67,8 @@ const fakeBridge = ({ os, seed }) => {
       header('App', ['exitApp', 'minimizeApp', 'getInfo', 'getState']),
       header('Share', ['share', 'canShare']),
       header('SplashScreen', ['show', 'hide']),
+      header('AdMob', ['initialize', 'requestConsentInfo', 'showConsentForm', 'showBanner', 'hideBanner', 'resumeBanner', 'removeBanner', 'prepareRewardVideoAd', 'showRewardVideoAd']),
+      header('NativePurchases', ['getProducts', 'getPurchases', 'purchaseProduct', 'restorePurchases']),
     ],
     nativePromise: async (plugin, method, options) => {
       calls.push([plugin, method, options]);
@@ -155,6 +173,72 @@ await page2.waitForSelector('#screen-title.show');
 await page2.waitForTimeout(300);
 check(await page2.textContent('#title-stars') === '321', 'old WebView-only save still loads');
 check(await page2.evaluate(() => (window.__prefs.get('the-apple.save.v1') || '').includes('dev12345')), 'old WebView-only save copied into native storage');
+
+// ------------------------------------------------------------------ free tier, ads, purchase
+const ctx3 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+const store = await ctx3.newPage();
+store.on('pageerror', e => errors.push(e.message));
+await store.addInitScript(fakeBridge, { os, seed });
+await store.goto(`${base}?debug`);
+await store.waitForSelector('#screen-title.show');
+const calls3 = () => store.evaluate(() => window.__calls.map(c => c.slice(0, 2).join('.')));
+const adOn = () => store.evaluate(() => document.documentElement.classList.contains('ad-on'));
+await store.waitForFunction(() => document.documentElement.classList.contains('ad-on'), null, { timeout: 5000 }).catch(() => {});
+check((await calls3()).includes('AdMob.requestConsentInfo') && (await calls3()).includes('AdMob.initialize'), 'free tier: asks for ad consent, then starts ads');
+check(await adOn() && await store.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--ad-h').trim()) === '50px', 'free tier: banner on the title screen, with its space kept clear');
+check((await store.textContent('#btn-endless')).includes('\u{1F512}'), 'Endless shows a lock');
+await store.click('#btn-endless');
+check(await store.isVisible('#screen-full'), 'Endless opens the full-game screen');
+check(await store.textContent('#full-buy') === 'Unlock for $2.99', 'price comes from the store');
+check(!(await adOn()), 'no banner over the purchase screen');
+await store.click('#full-close');
+await store.click('#btn-play');
+await store.waitForSelector('#screen-map.show');
+check(await store.isVisible('.map-unlock') && (await store.$$('.node.paid')).length === 80, 'map: levels 21-100 are marked as the full game');
+await store.$eval('#map-scroll .node[data-level="21"]', el => el.click());
+check(await store.isVisible('#screen-full') && !(await store.isVisible('#screen-level')), 'level 21 opens the full-game screen, not the level');
+await store.click('#full-close');
+check(await store.isVisible('#screen-map'), '"Not now" goes back to the map');
+await store.$eval('#map-scroll .node[data-level="1"]', el => el.click());
+await store.click('#lc-play');
+await store.waitForFunction(() => window.__game.state === 'play' && !window.__game.demo);
+check(!(await adOn()) && (await calls3()).includes('AdMob.hideBanner'), 'no banner during play');
+await store.evaluate(() => window.__game.levelComplete('LEVEL CLEAR!'));
+await store.waitForSelector('#screen-result.show', { timeout: 15000 });
+check(await adOn(), 'banner back on the results screen');
+check(await store.isVisible('#res-bonus'), 'results offer an optional ad for bonus stars');
+const ledgerBefore = await store.evaluate(() => JSON.parse(localStorage.getItem('the-apple.save.v1')).ledger);
+await store.click('#res-bonus');
+await store.waitForFunction(() => document.querySelector('#res-bonus').classList.contains('hidden'));
+const ledgerAfter = await store.evaluate(() => JSON.parse(localStorage.getItem('the-apple.save.v1')).ledger);
+const earned = l => Object.values(l).reduce((t, x) => t + x.e, 0);
+const bonusPaid = earned(ledgerAfter) - earned(ledgerBefore);
+check((await calls3()).includes('AdMob.showRewardVideoAd') && bonusPaid >= 3, `watching the ad pays bonus stars (+${bonusPaid})`);
+// Buy the full game.
+await store.click('#res-map');
+await store.$eval('#map-scroll .node[data-level="21"]', el => el.click());
+await store.click('#full-buy');
+await store.waitForFunction(() => document.documentElement.classList.contains('full-game'));
+check((await calls3()).includes('NativePurchases.purchaseProduct'), 'Unlock buys through the store');
+check(!(await store.isVisible('#screen-full')) && (await store.textContent('#toast')).includes('Full game unlocked'), 'purchase closes the screen and says thanks');
+check(!(await adOn()) && (await calls3()).includes('AdMob.removeBanner'), 'ads are gone after buying');
+check((await store.$$('.node.paid')).length === 0 && !(await store.isVisible('.map-unlock')), 'all levels open after buying');
+await store.reload();
+await store.waitForSelector('#screen-title.show');
+await store.waitForTimeout(500);
+check(await store.evaluate(() => document.documentElement.classList.contains('full-game')) && !(await calls3()).includes('AdMob.initialize'), 'after a restart: still unlocked, ads never start');
+await store.click('#btn-endless');
+check(await store.isVisible('#screen-endless'), 'Endless opens after buying');
+check(!(await store.textContent('#toast')).includes('Full game unlocked'), 'no repeat "unlocked" message on later launches');
+// A reinstall: nothing on the device, the purchase is on the store account.
+const ctx4 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+const again = await ctx4.newPage();
+again.on('pageerror', e => errors.push(e.message));
+await again.addInitScript(fakeBridge, { os, seed: {}, storeOwned: true });
+await again.goto(base);
+await again.waitForSelector('#screen-title.show');
+check(await again.waitForFunction(() => document.documentElement.classList.contains('full-game'), null, { timeout: 5000 }).then(() => true, () => false), 'reinstall: the purchase comes back from the store by itself');
+check(errors.length === 0, `no errors in the purchase flows${errors.length ? ': ' + errors.join(' | ') : ''}`);
 
 await browser.close();
 server.close();

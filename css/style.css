@@ -687,3 +687,39 @@ html, body { overscroll-behavior: none; }
   .hud-right { order: 3; }
   .hud-chips { order: 4; flex: 1 0 100%; flex-wrap: wrap; justify-content: center; gap: 3px 6px; }
 }
+
+/* ---------------------------------------------------------------- full game & ads */
+.store-only { display: none; }
+.has-store .store-only { display: inline; }
+.linkish { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+.endless-btn .lock { font-size: 0.8em; margin-left: 4px; }
+.full-panel { text-align: center; }
+.full-panel h2 { margin: 2px 0 6px; }
+.full-list { list-style: none; padding: 0; margin: 10px auto 16px; display: inline-block; text-align: left; font-weight: 600; }
+.full-list li { margin: 6px 0; }
+.full-status { min-height: 1.3em; margin: 8px 0 0; font-size: 0.9rem; opacity: 0.85; }
+.res-bonus { margin: 2px auto 10px; display: block; }
+.res-bonus.hidden { display: none; }
+.map-unlock {
+  display: block; width: calc(100% - 32px); margin: 14px 16px; padding: 12px 16px;
+  background: var(--gold); border: 3px solid var(--ink); border-radius: 18px; box-shadow: 0 5px 0 var(--ink);
+  font: inherit; color: var(--ink); text-align: center; cursor: pointer;
+}
+.map-unlock b { display: block; font-size: 1.1rem; }
+.map-unlock small { display: block; margin-top: 2px; font-weight: 500; }
+.map-world.paid .mw-head::after { content: "Full game"; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--gold); color: var(--ink); font-size: 0.75rem; font-weight: 700; }
+.node.paid:not(.locked) b { opacity: 0.55; }
+/* The banner ad is drawn natively over the bottom of the screen; menus keep
+   that strip clear (--ad-h is set by js/platform.js). */
+:root { --ad-h: 0px; }
+.ad-on .screen { padding-bottom: calc(16px + var(--ad-h) + env(safe-area-inset-bottom)); }
+.ad-on .map-screen { padding-bottom: 0; }
+.ad-on .map-wrap { bottom: calc(var(--ad-h) + env(safe-area-inset-bottom)); }
+.ad-on .toast { bottom: calc(24px + var(--ad-h) + env(safe-area-inset-bottom)); }
+#ad-sim {
+  position: fixed; left: 0; right: 0; bottom: env(safe-area-inset-bottom); height: 56px; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background: repeating-linear-gradient(45deg, #e0e0e0, #e0e0e0 10px, #f2f2f2 10px, #f2f2f2 20px);
+  border-top: 2px dashed #999; color: #666; font: 600 0.9rem var(--font);
+}
+#ad-sim[hidden] { display: none; }

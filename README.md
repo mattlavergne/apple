@@ -78,6 +78,8 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 
 ## Store app
 
+The app is free to play with ads: levels 1–20 and the Daily Run are free, and one $2.99 purchase unlocks all 100 levels and Endless and removes the ads. Ads only show on menus, never during play. The web version has everything and no ads; add `?store` to the address to preview the free app's paywall and ad layout. Details are in `js/monetization.js` and STORE.md.
+
 `ios/` and `android/` are [Capacitor](https://capacitorjs.com) projects that wrap these same files. `npm install && npm run sync` copies the game in (via `tools/build-www.mjs`), then build in Xcode or Android Studio. Anything device-specific (saving, haptics, sharing, back button, backgrounding) goes through `js/platform.js`, which falls back to plain web APIs in a browser, so features only need to be written once. [STORE.md](STORE.md) has the full release checklist.
 
 ## Hosting
@@ -117,7 +119,7 @@ Sync checks (Node 22+; they run the real server code from a landing-page checkou
 - `node tools/sync-e2e.mjs`: the real game in two browsers (phone and computer) plus two tabs. It checks that progress made on one appears on the other without reloading, and that tabs never overwrite each other.
 
 App checks:
-- `npm run build && node tools/native-smoke.mjs [ios|android]`: loads the app build in Chromium with a fake native bridge and checks saving, haptics, the back button, backgrounding and the launch screen.
+- `npm run build && node tools/native-smoke.mjs [ios|android]`: loads the app build in Chromium with a fake native bridge. It checks saving, haptics, the back button, backgrounding and the launch screen. It also checks the free tier: ads only on menus, the paywall, the bonus-stars ad, buying, and restoring after a reinstall.
 - `node tools/make-icons.mjs`: redraws the icons and launch screen from the in-game apple.
 
 `node tools/sim.mjs [runs] [mode] [dailySeed]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
@@ -135,4 +137,5 @@ App checks:
 | `js/input.js` | Keyboard and touch joystick |
 | `js/audio.js` | WebAudio sound effects and generated music |
 | `js/save.js` | Saved progress |
-| `js/platform.js` | Browser vs. store app: storage, haptics, sharing, back button, app lifecycle |
+| `js/platform.js` | Browser vs. store app: storage, haptics, sharing, back button, app lifecycle, purchases, ads |
+| `js/monetization.js` | Free tier, product ID, price and AdMob IDs |
