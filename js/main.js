@@ -3,9 +3,11 @@ import { Game, GRADE_STARS, mulberry32 } from './engine.js';
 import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
 import * as platform from './platform.js';
+import { RELEASE } from './build-info.js';
+import { FREE_LEVELS, PRODUCT_ID, FALLBACK_PRICE, CHILD_DIRECTED, AD_UNITS } from './monetization.js';
 import { Input } from './input.js';
 import { KEY as SAVE_KEY, load, store, readStored, backup, withDefaults } from './save.js';
-import { newCode, formatCode, normalizeCode, CloudSync, safeMerge, stableStringify } from './sync.js';
+import { newCode, formatCode, normalizeCode, CloudSync, safeMerge, stableStringify, regressions, SAVE_FIELDS } from './sync.js';
 import { ADVENTURE_LEVELS, LEVELS_PER_WORLD, adventureLevel, objectiveText, OBJECTIVE_ICON } from './levels.js';
 import {
   WORLDS, MODES, UPGRADES, SKINS, TIPS, GENERIC_TIPS, CORE_UNLOCK_LEVEL, EVENTS, GRADE_COLORS,
@@ -17,6 +19,7 @@ const $$ = sel => [...document.querySelectorAll(sel)];
 
 // In the app, saved progress comes from native storage, which is asynchronous.
 await platform.ready;
+platform.store.load();
 const save = load();
 const canvas = $('#game');
 const renderer = new Renderer(canvas);
@@ -81,9 +84,16 @@ let runKind = 'normal';
 let screen = 'title';      // title | play | paused | perks | over
 let returnTo = 'title';    // where "Back" from help/orchard goes
 let saveTimer = null;
+// The save as uploaded: without the fields that stay on this device (sync
+// code, device id, settings).
+const syncPayload = () => {
+  const out = { ...save };
+  for (const k of SAVE_FIELDS.local) delete out[k];
+  return out;
+};
 // The timestamp only moves when progress really changes, so simply opening the
 // game never makes a stale device look newest during a sync merge.
-const progressSnapshot = () => { const { sync, updatedAt, device, ...rest } = save; return JSON.stringify(rest); };
+const progressSnapshot = () => { const { updatedAt, ...rest } = syncPayload(); return JSON.stringify(rest); };
 let lastSnapshot = progressSnapshot();
 const persist = (now = false) => {
   const snap = progressSnapshot();
@@ -98,18 +108,16 @@ const persist = (now = false) => {
 };
 
 // ------------------------------------------------------------------ merging saves
-// The save as uploaded: without the sync code and device id, which stay here.
-const syncPayload = () => { const { sync, device, ...rest } = save; return rest; };
 
 // Replaces this device's progress with a merge that safeMerge() has already
 // checked can only add. The previous save goes to the backups first.
 function replaceProgress(merged) {
   backup(syncPayload());
   const before = { unlocked: save.adventure.unlocked, stars: totalAdvStars() };
-  const keep = save.sync, device = save.device;
+  const keep = {};
+  for (const k of SAVE_FIELDS.local) if (k in save) keep[k] = save[k];
   for (const k of Object.keys(save)) delete save[k];
-  Object.assign(save, withDefaults(JSON.parse(JSON.stringify(merged))), { device });
-  if (keep) save.sync = keep;
+  Object.assign(save, withDefaults(JSON.parse(JSON.stringify(merged))), keep);
   normalizeSave();
   lastSnapshot = progressSnapshot();
   return before;
@@ -129,20 +137,29 @@ function writeSave() {
   store(save);
   lastWritten = platform.storage.get(SAVE_KEY);
 }
+// Returns whether this tab's progress changed.
 function absorbLocal(other) {
-  const { sync, device, ...theirs } = other;
+  const theirs = { ...other };
+  for (const k of SAVE_FIELDS.local) delete theirs[k];
   try {
     const merged = safeMerge(syncPayload(), theirs);
-    if (stableStringify(merged) !== stableStringify(syncPayload())) { replaceProgress(merged); refreshScreen(); }
+    if (stableStringify(merged) === stableStringify(syncPayload())) return false;
+    replaceProgress(merged);
+    refreshScreen();
+    return true;
   } catch (e) {
     backup(theirs);
     console.error(e);
+    return false;
   }
 }
-// Another tab saved: pick it up right away.
+// Another tab saved: pick it up right away, and if that tab's write raced
+// one from here, store the combined save so storage has both.
 window.addEventListener('storage', e => {
   if (e.key !== SAVE_KEY || !e.newValue) return;
-  try { absorbLocal(JSON.parse(e.newValue)); } catch { /* damaged; load() sets those aside */ }
+  let other = null;
+  try { other = JSON.parse(e.newValue); } catch { return; /* damaged; load() sets those aside */ }
+  if (absorbLocal(other) || regressions(other, syncPayload()).length) writeSave();
 });
 
 // Redraws whatever is on screen after progress arrived from elsewhere.
@@ -181,8 +198,21 @@ const cloud = new CloudSync({
     else setSyncStatus('\u26a0\ufe0f ' + err.message);
     if (loudSync) toast(kind === 'ok' ? '\u2601\ufe0f Progress synced' : err.message);
     loudSync = false;
+    // The code's cloud copy was deleted (from another device): stop using it.
+    if (err?.kind === 'deleted') {
+      syncOff(err.message);
+      if (screen !== 'play') toast(err.message);
+    }
   },
 });
+function syncOff(msg) {
+  delete save.sync;
+  cloud.reset();
+  writeSave();
+  syncMsg = msg;
+  if ($('#screen-sync').classList.contains('show')) renderSync();
+  else $('#btn-sync').setAttribute('aria-pressed', 'false');
+}
 // Explicit taps get a toast; background syncs stay quiet.
 async function syncNow(quiet = false) {
   if (!save.sync?.code) return;
@@ -268,6 +298,7 @@ function startDemo() {
 // ------------------------------------------------------------------ screens
 function show(id) {
   $$('.screen').forEach(s => s.classList.toggle('show', s.id === 'screen-' + id));
+  updateAds();
 }
 function hideScreens() {
   $$('.screen').forEach(s => s.classList.remove('show'));
@@ -279,8 +310,56 @@ function setPlaying(on) {
   $('#hud').classList.toggle('hidden', !on);
   $('#abilities').classList.toggle('hidden', !on);
   input.enabled = on;
+  updateAds();
   requestAnimationFrame(() => renderer.resize());
 }
+
+// ------------------------------------------------------------------ full game & ads
+// Store app: levels 1-20 and the Daily Run are free with ads; one purchase
+// unlocks the rest and removes the ads (js/monetization.js). The web version
+// has everything and no ads.
+const fullGame = () => platform.store.owned;
+const forSale = n => !fullGame() && n > FREE_LEVELS;
+// The banner only ever shows on menus: never while playing or paused, and
+// not over the purchase screen.
+function updateAds() {
+  const menu = screen !== 'play' && screen !== 'paused' && !$('#screen-full').classList.contains('show');
+  platform.ads.banner(platform.hasStore && !fullGame() && menu);
+}
+let paywallBack = 'title';
+function openPaywall(reason) {
+  audio.unlock();
+  const open = $('.screen.show');
+  paywallBack = open && open.id !== 'screen-full' ? open.id.replace('screen-', '') : 'title';
+  $('#full-why').textContent = reason === 'endless'
+    ? 'Endless mode is part of the full game.'
+    : `You\u2019ve got levels 1\u2013${FREE_LEVELS}. The full game has ${ADVENTURE_LEVELS - FREE_LEVELS} more, across ${(ADVENTURE_LEVELS - FREE_LEVELS) / LEVELS_PER_WORLD} more worlds.`;
+  $('#full-status').textContent = '';
+  renderPrice();
+  show('full');
+  const c = $('#full-apple').getContext('2d');
+  c.clearRect(0, 0, 120, 120);
+  drawApple(c, 60, 66, 40, { skin: skin(), time: 0.6, look: { x: 0.3, y: 0.2 } });
+}
+function closePaywall() {
+  if (paywallBack === 'map') { renderMap(); show('map'); } else if (paywallBack === 'title') { renderTitle(); show('title'); } else show(paywallBack);
+}
+function renderPrice() {
+  $('#full-buy').textContent = `Unlock for ${platform.store.price}`;
+}
+function renderFullGame() {
+  document.documentElement.classList.toggle('full-game', fullGame());
+  $('#btn-endless').innerHTML = fullGame() ? '&#8734; Endless' : '&#8734; Endless <span class="lock">&#128274;</span>';
+}
+platform.store.onChange(what => {
+  renderPrice();
+  if (what === 'price') { if (screen === 'map') refreshScreen(); return; }
+  platform.ads.removeBanner();
+  renderFullGame();
+  if ($('#screen-full').classList.contains('show')) closePaywall();
+  refreshScreen();
+  toast('\ud83c\udf89 Full game unlocked. Thanks for supporting The Apple!');
+});
 
 function goTitle() {
   screen = 'title';
@@ -412,8 +491,15 @@ function renderMap() {
     const first = w * LEVELS_PER_WORLD + 1;
     let wStars = 0;
     for (let i = 0; i < LEVELS_PER_WORLD; i++) wStars += A.stars[first + i] || 0;
+    if (first === FREE_LEVELS + 1 && forSale(first)) {
+      const card = document.createElement('button');
+      card.className = 'map-unlock';
+      card.innerHTML = `<b>\ud83d\udd13 Unlock the full game</b><small>${ADVENTURE_LEVELS - FREE_LEVELS} more levels, Endless mode, no ads \u00b7 ${platform.store.price}</small>`;
+      card.addEventListener('click', () => { audio.play('click'); openPaywall('level'); });
+      wrap.appendChild(card);
+    }
     const sec = document.createElement('section');
-    sec.className = 'map-world' + (W.dark ? ' dark' : '') + (first > A.unlocked ? ' locked' : '');
+    sec.className = 'map-world' + (W.dark ? ' dark' : '') + (first > A.unlocked ? ' locked' : '') + (forSale(first) ? ' paid' : '');
     sec.style.background = `linear-gradient(${W.bg[0]}, ${W.bg[1]})`;
     const h = LEVELS_PER_WORLD * MAP_ROW;
     const pts = [];
@@ -424,7 +510,7 @@ function renderMap() {
       pts.push(`${x},${y}`);
       const d = adventureLevel(n);
       const st = A.stars[n] || 0;
-      const cls = ['node', d.boss ? 'boss' : '', n > A.unlocked ? 'locked' : '', n === A.unlocked ? 'current' : '', st ? 'done' : ''].join(' ');
+      const cls = ['node', d.boss ? 'boss' : '', n > A.unlocked ? 'locked' : '', n === A.unlocked ? 'current' : '', st ? 'done' : '', forSale(n) ? 'paid' : ''].join(' ');
       nodes += `<button class="${cls}" data-level="${n}" style="left:${x}%;top:${y}px" aria-label="Level ${n}${n > A.unlocked ? ' (locked)' : ''}">
         ${d.boss ? '<span class="crown">\ud83d\udc51</span>' : ''}<b>${n > A.unlocked ? '\ud83d\udd12' : n}</b>
         <span class="nstars">${st ? starStr(st) : n <= A.unlocked ? OBJECTIVE_ICON[d.objective.type] : ''}</span>
@@ -440,6 +526,7 @@ function renderMap() {
 }
 
 function openLevelCard(n) {
+  if (forSale(n)) { openPaywall('level'); return; }
   advLevel = n;
   const d = adventureLevel(n), A = save.adventure;
   $('#lc-world').textContent = `World ${d.world + 1} \u00b7 ${WORLDS[d.world].name}`;
@@ -482,6 +569,14 @@ function showResult(g) {
   if (nextWorld) un.textContent = `\ud83c\udf0d New world unlocked: ${WORLDS[Math.floor(n / LEVELS_PER_WORLD)].name}!`;
   $('#res-next').classList.toggle('hidden', n >= ADVENTURE_LEVELS);
   lastRun = { adv: n, stars, level: n, score, grades: g.grades.slice(), nerve: g.nerveBest, kills: { ...g.kills }, mode: 'classic' };
+  const bonus = Math.max(3, g.starsRun);
+  const offer = platform.hasStore && !fullGame() && platform.ads.ready;
+  $('#res-bonus').classList.toggle('hidden', !offer);
+  if (offer) {
+    $('#res-bonus').dataset.stars = bonus;
+    $('#res-bonus').innerHTML = `&#127916; Watch an ad: +${bonus}&#9733;`;
+    platform.ads.prepareRewarded();
+  }
   if (stars === 3) audio.play('grade');
   show('result');
 }
@@ -986,13 +1081,59 @@ async function shareRun() {
 
 // ------------------------------------------------------------------ wiring
 $('#btn-play').addEventListener('click', () => { audio.unlock(); audio.play('click'); openMap(); });
-$('#btn-endless').addEventListener('click', () => { audio.unlock(); audio.play('click'); returnTo = 'title'; renderTitle(); show('endless'); });
+$('#btn-endless').addEventListener('click', () => {
+  audio.unlock(); audio.play('click');
+  if (!fullGame()) { openPaywall('endless'); return; }
+  returnTo = 'title'; renderTitle(); show('endless');
+});
+$('#full-buy').addEventListener('click', async () => {
+  audio.play('click');
+  const btn = $('#full-buy');
+  btn.disabled = true;
+  $('#full-status').textContent = 'Opening the store\u2026';
+  try {
+    const r = await platform.store.buy();
+    $('#full-status').textContent = r === 'pending' ? 'Waiting for the purchase to be approved. It unlocks by itself when it is.' : '';
+  } catch (e) {
+    $('#full-status').textContent = e.message || 'The purchase didn\u2019t go through.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+async function restorePurchase() {
+  audio.play('click');
+  $('#full-status').textContent = 'Checking your purchases\u2026';
+  const ok = await platform.store.restore();
+  if (!ok) {
+    const msg = 'No purchase found for this store account.';
+    if ($('#screen-full').classList.contains('show')) $('#full-status').textContent = msg; else toast(msg);
+  }
+}
+$('#full-restore').addEventListener('click', restorePurchase);
+$('#help-restore').addEventListener('click', restorePurchase);
+$('#full-close').addEventListener('click', () => { audio.play('click'); closePaywall(); });
+// Optional: watch an ad for bonus stars after a level.
+$('#res-bonus').addEventListener('click', async () => {
+  const btn = $('#res-bonus'), bonus = +btn.dataset.stars;
+  btn.disabled = true;
+  audio.setBackground(true);
+  const ok = await platform.ads.rewarded();
+  audio.setBackground(false);
+  btn.classList.add('hidden');
+  btn.disabled = false;
+  if (!ok) { toast('No bonus this time.'); return; }
+  earnStars(bonus);
+  persist(true);
+  audio.play('grade');
+  toast(`+${bonus}\u2605 bonus stars!`);
+});
 $('#btn-endless-go').addEventListener('click', () => { audio.play('click'); startRun('normal'); });
 $('#map-back').addEventListener('click', () => { audio.play('click'); goTitle(); });
 $('#map-scroll').addEventListener('click', e => {
   const b = e.target.closest('.node');
   if (!b) return;
   const n = +b.dataset.level;
+  if (forSale(n)) { audio.play('click'); openPaywall('level'); return; }
   if (n > save.adventure.unlocked) { audio.play('nope'); toast('Beat the level before it to unlock this one.'); return; }
   audio.play('click');
   openLevelCard(n);
@@ -1037,11 +1178,18 @@ $('#sync-copy').addEventListener('click', async () => {
 if (platform.sharesWithSheet) $('#sync-copy').textContent = 'Send link';
 $('#sync-stop').addEventListener('click', () => {
   // Progress stays on this device; it just stops talking to the cloud.
-  delete save.sync;
-  cloud.reset();
-  writeSave();
-  syncMsg = 'Sync is off on this device. Your progress is still here.';
-  renderSync();
+  syncOff('Sync is off on this device. Your progress is still here.');
+});
+$('#sync-delete').addEventListener('click', async () => {
+  const code = save.sync?.code;
+  if (!code || !confirm('Delete the cloud copy of your progress?\n\nYour progress stays on this device. Other devices using this code will stop syncing.')) return;
+  audio.play('click');
+  try {
+    await cloud.api.deleteSave(code);
+    syncOff('Cloud copy deleted. Your progress is still on this device.');
+  } catch (e) {
+    setSyncStatus('\u26a0\ufe0f ' + e.message);
+  }
 });
 $('#contracts').addEventListener('click', e => {
   if (!e.target.closest('.c-head')) return;
@@ -1143,6 +1291,7 @@ platform.onBack(() => {
   if (screen === 'play') pause();
   else if (screen === 'paused') resume();
   else if (id === 'level') { audio.play('click'); show('map'); }
+  else if (id === 'full') closePaywall();
   else if (id === 'map') { audio.play('click'); goTitle(); }
   else if (id === 'result' || (id === 'over' && runKind === 'adventure')) openMap();
   else if (id === 'over') goTitle();
@@ -1151,6 +1300,16 @@ platform.onBack(() => {
   // A perk pick waits for a choice.
 });
 
+// The HUD can change height mid-level (a chip wrapping onto a new line on a
+// phone), so the canvas follows the space it actually has, not just the window.
+if ('ResizeObserver' in window) {
+  let pending = false;
+  new ResizeObserver(() => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; renderer.resize(); });
+  }).observe($('#stage'));
+}
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
@@ -1196,8 +1355,15 @@ if (!platform.isNative && 'serviceWorker' in navigator && (location.protocol ===
 }
 
 syncToggles();
+document.documentElement.classList.toggle('has-store', platform.hasStore);
+renderFullGame();
 renderer.resize();
 goTitle();
+if (platform.hasStore) {
+  platform.store.init({ productId: PRODUCT_ID, price: FALLBACK_PRICE });
+  renderPrice();
+  if (!fullGame()) platform.ads.init({ release: RELEASE, units: AD_UNITS, childDirected: CHILD_DIRECTED }).then(updateAds);
+}
 // A sync link (…#sync=CODE) offers to link this device, also when it's opened
 // in a tab that already has the game.
 function handleSyncLink() {

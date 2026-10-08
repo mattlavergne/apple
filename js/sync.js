@@ -57,6 +57,7 @@ export function makeApi(fetchImpl = (...a) => fetch(...a), base = apiBase) {
     try { json = await res.json(); } catch { /* not JSON */ }
     if (res.status === 404 && method === 'GET') return null;
     if (res.status === 409 && json?.conflict) return json;
+    if (res.status === 410) throw new SyncError('deleted', 'This sync code\u2019s cloud copy was deleted, so sync is off here. Your progress is still on this device.');
     if (res.status === 503 && json?.error === 'sync not configured') throw new SyncError('unconfigured', 'Cloud sync isn’t switched on on the server yet.');
     if (res.status === 403 && !json) throw new SyncError('blocked', 'The sync server’s security check blocked this request. Try again in a bit.');
     if (!res.ok || !json) throw new SyncError('server', `Sync failed (${res.status}). Progress is safe on this device.`);
@@ -68,18 +69,23 @@ export function makeApi(fetchImpl = (...a) => fetch(...a), base = apiBase) {
     // { ok, rev, updatedAt } | { conflict: true, reason, data, updatedAt, rev }
     putSave: (code, data, baseRev, keepalive = false) =>
       call('PUT', code, { body: { data, updatedAt: data.updatedAt, baseRev }, keepalive }),
+    // Deletes the cloud copy and its history; devices still using the code
+    // get 'deleted' errors and turn sync off.
+    deleteSave: code => call('DELETE', code),
   };
 }
 
 // ------------------------------------------------------------------ merging
 // Every top-level save field and how it merges. A new field must be added
-// here (tools/sync-fuzz.mjs fails otherwise) and, if it is progress, to
+// here (tools/sync-e2e.mjs fails otherwise) and, if it is progress, to
 // mergeSaves() and regressions() below and in the server's regressions().
+// Only what another device needs is uploaded: settings (sound, controls,
+// haptics) belong to each device and never leave it.
 export const SAVE_FIELDS = {
   progress: ['adventure', 'best', 'upgrades', 'ledger', 'stars', 'skins', 'stats', 'seenHelp', 'daily', 'contracts'],
-  choice: ['skin', 'mode', 'settings', 'nemesis'], // the most recently changed device wins
+  choice: ['skin', 'mode', 'nemesis'], // the most recently changed device wins
   meta: ['updatedAt'],
-  local: ['sync', 'device'], // never uploaded
+  local: ['sync', 'device', 'settings'], // never uploaded
 };
 
 const num = v => (typeof v === 'number' && Number.isFinite(v) ? v : 0);

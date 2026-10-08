@@ -22,8 +22,10 @@ Progress can follow you between devices with no account: **Sync** on the title s
 - **Merging only adds.** Unlocked levels, best stars and scores, upgrades, skins and lifetime stats take the best of both devices. The star balance is a per-device ledger, so balances from two devices add up instead of overwriting each other. The daily run and contracts merge by day. Choices (equipped skin, mode, settings, nemesis) come from whichever device changed most recently. The merge gives the same result whichever device runs it, so devices settle instead of re-uploading forever.
 - **Every merge is double-checked** (`safeMerge` in `js/sync.js`) against both saves before it's used. If anything would go down, sync stops and the device keeps its own save.
 - **The server only accepts a save based on its latest revision** (compare-and-swap). It sends back the newer save, and the game merges and retries. It also refuses any save with less progress than the one it has, even from an older game version.
-- **History:** the server keeps the last 20 versions of each save plus the last one of each day for 30 days (`apple_save_history`). Each device keeps its last 10 saves from before a merge replaced them (`the-apple.save.backups` in local storage). A save that can't be read is set aside, never overwritten.
+- **History:** the server keeps the last 10 versions of each save plus the last one of each day for 14 days (`apple_save_history`). Each device keeps its last 10 saves from before a merge replaced them (`the-apple.save.backups` in local storage). A save that can't be read is set aside, never overwritten.
 - **Two tabs** on one computer merge each other's saves instead of overwriting them.
+
+**Minimal data:** only progress is uploaded. Settings stay on each device. Cloud saves nobody has synced for 6 months are deleted with their history. **Delete cloud copy** on the Sync screen removes a save and its history at once; other devices still using that code are told and turn sync off instead of uploading it again.
 
 Every top-level save field must be listed in `SAVE_FIELDS` in `js/sync.js`. A new progress field also needs a merge rule and a progress check, on both the game and the server.
 
@@ -76,6 +78,8 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 
 ## Store app
 
+The app is free to play with ads: levels 1–20 and the Daily Run are free, and one $2.99 purchase unlocks all 100 levels and Endless and removes the ads. Ads only show on menus, never during play. The web version has everything and no ads; add `?store` to the address to preview the free app's paywall and ad layout. Details are in `js/monetization.js` and STORE.md.
+
 `ios/` and `android/` are [Capacitor](https://capacitorjs.com) projects that wrap these same files. `npm install && npm run sync` copies the game in (via `tools/build-www.mjs`), then build in Xcode or Android Studio. Anything device-specific (saving, haptics, sharing, back button, backgrounding) goes through `js/platform.js`, which falls back to plain web APIs in a browser, so features only need to be written once. [STORE.md](STORE.md) has the full release checklist.
 
 ## Hosting
@@ -115,7 +119,7 @@ Sync checks (Node 22+; they run the real server code from a landing-page checkou
 - `node tools/sync-e2e.mjs`: the real game in two browsers (phone and computer) plus two tabs. It checks that progress made on one appears on the other without reloading, and that tabs never overwrite each other.
 
 App checks:
-- `npm run build && node tools/native-smoke.mjs [ios|android]`: loads the app build in Chromium with a fake native bridge and checks saving, haptics, the back button, backgrounding and the launch screen.
+- `npm run build && node tools/native-smoke.mjs [ios|android]`: loads the app build in Chromium with a fake native bridge. It checks saving, haptics, the back button, backgrounding and the launch screen. It also checks the free tier: ads only on menus, the paywall, the bonus-stars ad, buying, and restoring after a reinstall.
 - `node tools/make-icons.mjs`: redraws the icons and launch screen from the in-game apple.
 
 `node tools/sim.mjs [runs] [mode] [dailySeed]` runs a simple bot through many headless games. It's a quick way to sanity-check difficulty after tuning `levelParams` in `js/config.js`.
@@ -133,4 +137,5 @@ App checks:
 | `js/input.js` | Keyboard and touch joystick |
 | `js/audio.js` | WebAudio sound effects and generated music |
 | `js/save.js` | Saved progress |
-| `js/platform.js` | Browser vs. store app: storage, haptics, sharing, back button, app lifecycle |
+| `js/platform.js` | Browser vs. store app: storage, haptics, sharing, back button, app lifecycle, purchases, ads |
+| `js/monetization.js` | Free tier, product ID, price and AdMob IDs |

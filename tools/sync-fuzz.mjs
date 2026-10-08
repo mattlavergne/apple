@@ -13,7 +13,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { CloudSync, makeApi, mergeSaves, regressions, safeMerge, stableStringify } from '../js/sync.js';
+import { CloudSync, makeApi, mergeSaves, regressions, safeMerge, stableStringify, SAVE_FIELDS } from '../js/sync.js';
 
 const SEEDS = +(process.argv[2] || 200);
 const root = dirname(fileURLToPath(import.meta.url));
@@ -55,7 +55,7 @@ function d1(db, jitter) {
 }
 
 const sqlite = new DatabaseSync(':memory:');
-const { handleAppleApi, regressions: serverRegressions } = await import(serverUrl);
+const { handleAppleApi, regressions: serverRegressions, cleanupAppleSaves } = await import(serverUrl);
 let R = rng(1);
 const env = { APPLE_DB: d1(sqlite, () => (R() < 0.5 ? 0 : Math.floor(R() * 3))) };
 const cloudRow = code => {
@@ -91,7 +91,11 @@ function makeDevice(id, code, opts = {}) {
     const lost = regressions(dev.save, prev);
     check(!lost.length, `device ${id} save went backwards: ${lost.join(', ')}`);
   };
-  dev.payload = () => { const { sync, device, ...rest } = dev.save; return JSON.parse(JSON.stringify(rest)); };
+  dev.payload = () => {
+    const out = JSON.parse(JSON.stringify(dev.save));
+    for (const k of SAVE_FIELDS.local) delete out[k];
+    return out;
+  };
   const fetchImpl = async (url, init = {}) => {
     if (dev.offline || R() < dev.net.before) throw new TypeError('network down (request lost)');
     await sleep(Math.floor(R() * 3));
@@ -108,8 +112,9 @@ function makeDevice(id, code, opts = {}) {
       getState: () => dev.save.sync || null,
       saveState: dev.write,
       apply: merged => {
-        const { sync, device } = dev.save;
-        dev.save = { ...JSON.parse(JSON.stringify(merged)), sync, device };
+        const keep = {};
+        for (const k of SAVE_FIELDS.local) if (k in dev.save) keep[k] = dev.save[k];
+        dev.save = { ...JSON.parse(JSON.stringify(merged)), ...keep };
         dev.write();
       },
       onStatus: (kind, e) => { if (kind === 'error') dev.errors.push(e.kind); },
@@ -239,7 +244,8 @@ async function scenario(seed) {
     }
   }
   const history = sqlite.prepare('SELECT COUNT(*) AS n FROM apple_save_history WHERE code = ?').get(code).n;
-  check(history >= 1 && history <= 20 + 31, `seed ${seed}: history has ${history} versions`);
+  check(history >= 1 && history <= 10 + 15, `seed ${seed}: history has ${history} versions`);
+  check(!('settings' in cloud.data), `seed ${seed}: device settings were uploaded`);
 }
 
 // ------------------------------------------------------------------ guard tests
@@ -279,10 +285,27 @@ async function guards() {
   await junk.cloud.sync();
   check(junk.errors.includes('guard'), 'a merge returning nothing was not stopped');
 
-  // 5. Garbage in the cloud never reaches a device.
+  // 5. Deleting the cloud copy: gone with its history, and a device still
+  // using the code turns sync off instead of uploading it again.
+  const other = makeDevice('other', code);
+  await other.cloud.sync();
+  check(other.save.sync?.code === code && !other.errors.length, 'a second device could not join before the delete');
+  const del = await good.api.deleteSave(code);
+  check(del.ok, 'delete failed');
+  check(!cloudRow(code), 'the cloud copy is still there after delete');
+  check(sqlite.prepare('SELECT COUNT(*) AS n FROM apple_save_history WHERE code = ?').get(code).n === 0, 'history survived the delete');
+  play(other);
+  await other.cloud.sync();
+  check(other.errors.includes('deleted'), 'a device using a deleted code was not told');
+  check(!cloudRow(code), 'a device brought a deleted cloud copy back');
+  const relinked = makeDevice('late', code);
+  await relinked.cloud.sync();
+  check(relinked.errors.includes('deleted') && !cloudRow(code), 'linking a deleted code re-created it');
+
+  // 6. Garbage in the cloud never reaches a device.
   check((() => { try { safeMerge(good.payload(), 'nonsense'); return false; } catch (e) { return e.kind === 'bad-data'; } })(), 'a non-object cloud save was merged');
 
-  // 6. Merging is order-independent (two devices always agree) and idempotent.
+  // 7. Merging is order-independent (two devices always agree) and idempotent.
   for (let i = 0; i < 300; i++) {
     R = rng(5000 + i);
     truth = null;
@@ -307,11 +330,27 @@ async function guards() {
 // ------------------------------------------------------------------ migration
 // A table made by the first server version (no revisions, no history) keeps
 // its saves and gets upgraded on first use.
+// Saves nobody synced for 6 months go away, with their history and old
+// deleted-code markers; recent ones stay.
+async function expiry() {
+  const now = Date.now(), old = now - 200 * 864e5, recent = now - 10 * 864e5;
+  const row = sqlite.prepare('INSERT INTO apple_saves (code, data, updated_at, created_at, rev, touched_at) VALUES (?, ?, ?, ?, ?, ?)');
+  row.run('EXPXREDAAAAA', '{}', old, old, 3, old);
+  row.run('EXPXREDBBBBB', '{}', now, old, 3, recent); // made long ago, synced recently
+  sqlite.prepare('INSERT INTO apple_save_history (code, rev, data, saved_at) VALUES (?, ?, ?, ?)').run('EXPXREDAAAAA', 3, '{}', old);
+  sqlite.prepare('INSERT INTO apple_deleted (code, deleted_at) VALUES (?, ?)').run('EXPXREDCCCCC', old);
+  await cleanupAppleSaves(env.APPLE_DB, now);
+  check(!cloudRow('EXPXREDAAAAA'), 'a save untouched for 200 days was kept');
+  check(!!cloudRow('EXPXREDBBBBB'), 'a recently synced save was deleted');
+  check(sqlite.prepare("SELECT COUNT(*) AS n FROM apple_save_history WHERE code = 'EXPXREDAAAAA'").get().n === 0, 'an expired save left history behind');
+  check(!sqlite.prepare("SELECT 1 FROM apple_deleted WHERE code = 'EXPXREDCCCCC'").get(), 'an old deleted-code marker was kept');
+}
+
 async function migration() {
   const db = new DatabaseSync(':memory:');
   db.exec('CREATE TABLE apple_saves (code TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL, created_at INTEGER NOT NULL)');
   const old = { adventure: { unlocked: 7, stars: { 1: 3, 2: 2 } }, ledger: { phone: { e: 40, s: 5 } }, updatedAt: 5 };
-  db.prepare('INSERT INTO apple_saves VALUES (?, ?, ?, ?)').run('MXGRATEAAAAA', JSON.stringify(old), 5, 5);
+  db.prepare('INSERT INTO apple_saves VALUES (?, ?, ?, ?)').run('MXGRATEAAAAA', JSON.stringify(old), 5, Date.now() - 864e5);
   const fresh = await import(`${serverUrl}?migration`);
   const menv = { APPLE_DB: d1(db, () => 0) };
   const api = makeApi((url, init = {}) => fresh.handleAppleApi(new Request(url, { method: init.method, headers: init.headers, body: init.body }), menv), () => 'https://x/apple/api');
@@ -327,7 +366,8 @@ async function migration() {
 const t0 = Date.now();
 await migration();
 await guards();
+await expiry();
 for (let seed = 1; seed <= SEEDS; seed++) await scenario(seed);
-console.log(`${SEEDS} random multi-device runs + guard and migration checks in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+console.log(`${SEEDS} random multi-device runs + guard, delete, expiry and migration checks in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 console.log(failures ? `${failures} failures` : 'all passed');
 process.exit(failures ? 1 : 0);

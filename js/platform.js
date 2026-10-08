@@ -145,3 +145,181 @@ export function appReady() {
   safe(() => SplashScreen.hide({ fadeOutDuration: 200 }));
 }
 if (splashUp) setTimeout(appReady, 4000);
+
+// ------------------------------------------------------------------ purchases
+// The store app sells the full game as a one-time purchase; the web version
+// has everything. Adding ?store to the web address pretends to be the store
+// app (free tier, a pretend Buy button, a placeholder ad) so the paywall and
+// the ad layout can be tried in a browser.
+const Purchases = plugin('NativePurchases');
+const AdMob = plugin('AdMob');
+export const storeSim = !isNative && new URLSearchParams(location.search).has('store');
+export const hasStore = isNative || storeSim;
+
+// A store record proves the purchase; Android also reports pending payments.
+const validPurchase = (t, id) => !!t && t.productIdentifier === id && !t.revocationDate &&
+  (os !== 'android' || String(t.purchaseState) === '1');
+const OWNED_KEY = 'the-apple.full';
+
+export const store = {
+  productId: '',
+  price: '',
+  // Only ever granted, never taken away by the app itself: if the store is
+  // unreachable or signed out, a player who paid keeps what they paid for.
+  owned: !hasStore,
+  listeners: new Set(),
+  // Call after `ready`, once native storage has been restored.
+  load() { if (storage.get(OWNED_KEY) === '1') this.owned = true; },
+  // cb('price') when the store's local price arrives, cb('owned') on purchase.
+  onChange(cb) { this.listeners.add(cb); },
+  grant() {
+    if (this.owned) return;
+    this.owned = true;
+    storage.set(OWNED_KEY, '1');
+    this.listeners.forEach(cb => cb('owned'));
+  },
+  async init({ productId, price }) {
+    this.productId = productId;
+    this.price = price;
+    if (!Purchases) return;
+    try {
+      const { products = [] } = await Purchases.getProducts({ productIdentifiers: [productId], productType: 'inapp' });
+      const p = products.find(x => x.identifier === productId);
+      if (p?.priceString) { this.price = p.priceString; this.listeners.forEach(cb => cb('price')); }
+    } catch { /* offline: keep the fallback price */ }
+    if (await this.check()) this.grant();
+    // Purchases that finish later (Ask to Buy, slow payment methods).
+    safe(() => Purchases.addListener('transactionUpdated', t => { if (validPurchase(t, this.productId)) this.grant(); }));
+  },
+  async check() {
+    try {
+      const { purchases = [] } = await Purchases.getPurchases(os === 'ios' ? { onlyCurrentEntitlements: true } : { productType: 'inapp' });
+      return purchases.some(t => validPurchase(t, this.productId));
+    } catch {
+      return false;
+    }
+  },
+  // Resolves 'bought' | 'pending' | 'cancelled'; throws with a message to show.
+  async buy() {
+    if (storeSim) {
+      if (!confirm(`Pretend purchase (web test only): unlock the full game for ${this.price}?`)) return 'cancelled';
+      this.grant();
+      return 'bought';
+    }
+    if (!Purchases) throw new Error('Purchases aren’t available on this device.');
+    try {
+      const t = await Purchases.purchaseProduct({ productIdentifier: this.productId, productType: 'inapp' });
+      if (validPurchase(t, this.productId)) { this.grant(); return 'bought'; }
+      if (t && String(t.purchaseState) === '2') return 'pending';
+      throw new Error('The purchase didn’t go through. You haven’t been charged.');
+    } catch (e) {
+      if (/cancel/i.test(`${e?.message} ${e?.code}`)) return 'cancelled';
+      throw e;
+    }
+  },
+  // Apple requires a way to get a purchase back on a new device.
+  async restore() {
+    if (storeSim) return this.owned;
+    if (!Purchases) return false;
+    await safe(() => Purchases.restorePurchases());
+    const ok = await this.check();
+    if (ok) this.grant();
+    return ok;
+  },
+};
+
+// ------------------------------------------------------------------ ads
+// Google AdMob, only in the store app and only until the full game is bought.
+// Ads are never personalized and are limited to general-audience content.
+// The banner sits at the bottom of menu screens; the game reserves that space
+// through the --ad-h CSS variable so nothing is hidden under it.
+const setAdSpace = px => {
+  document.documentElement.style.setProperty('--ad-h', `${Math.max(0, Math.round(px))}px`);
+  document.documentElement.classList.toggle('ad-on', px > 0);
+};
+export const ads = {
+  ready: false,
+  bannerOn: false,
+  bannerLoaded: false,
+  bannerHeight: 0,
+  rewardReady: null,
+  async init({ release, units, childDirected }) {
+    this.release = release;
+    this.units = units[os] || {};
+    if (storeSim) { this.ready = true; return; }
+    if (!AdMob) return;
+    try {
+      // Google's consent form for players in the EU and UK; a no-op elsewhere.
+      let info = await AdMob.requestConsentInfo({ tagForUnderAgeOfConsent: childDirected });
+      if (info.isConsentFormAvailable && info.status === 'REQUIRED') info = await AdMob.showConsentForm();
+      if (info.canRequestAds === false) return;
+      await AdMob.initialize({
+        initializeForTesting: !release,
+        maxAdContentRating: 'General',
+        tagForChildDirectedTreatment: childDirected,
+        tagForUnderAgeOfConsent: childDirected,
+      });
+      safe(() => AdMob.addListener('bannerAdSizeChanged', s => {
+        this.bannerHeight = s.height || 0;
+        if (this.bannerOn) setAdSpace(this.bannerHeight);
+      }));
+      safe(() => AdMob.addListener('bannerAdFailedToLoad', () => { this.bannerHeight = 0; setAdSpace(0); }));
+      this.ready = true;
+    } catch { /* no ads this session */ }
+  },
+  // Show or hide the bottom banner (the game calls this on every screen change).
+  banner(show) {
+    show = show && this.ready;
+    if (show === this.bannerOn) return;
+    this.bannerOn = show;
+    if (storeSim) return simBanner(show);
+    if (!AdMob) return;
+    if (show && !this.bannerLoaded) {
+      this.bannerLoaded = true;
+      safe(() => AdMob.showBanner({
+        adId: this.units.banner, adSize: 'ADAPTIVE_BANNER', position: 'BOTTOM_CENTER', margin: 0,
+        isTesting: !this.release, npa: true,
+      }));
+    } else if (show) {
+      safe(() => AdMob.resumeBanner());
+      setAdSpace(this.bannerHeight);
+    } else {
+      safe(() => AdMob.hideBanner());
+      setAdSpace(0);
+    }
+  },
+  // Gone for good once the full game is bought.
+  removeBanner() {
+    this.banner(false);
+    this.ready = false;
+    if (AdMob && this.bannerLoaded) safe(() => AdMob.removeBanner());
+  },
+  // Load a rewarded ad ahead of time so it plays the moment it's asked for.
+  prepareRewarded() {
+    if (!this.ready || storeSim || !AdMob) return;
+    this.rewardReady ||= AdMob.prepareRewardVideoAd({ adId: this.units.rewarded, isTesting: !this.release, npa: true })
+      .then(() => true, () => { this.rewardReady = null; return false; });
+  },
+  // Plays a rewarded ad; resolves true only if the player earned the reward.
+  async rewarded() {
+    if (storeSim) return confirm('Pretend ad (web test only): did you watch it to the end?');
+    if (!this.ready || !AdMob) return false;
+    this.prepareRewarded();
+    const loaded = await this.rewardReady;
+    this.rewardReady = null;
+    if (!loaded) return false;
+    try { return !!(await AdMob.showRewardVideoAd()); } catch { return false; }
+  },
+};
+// The web stand-in for the banner, to check the layout.
+function simBanner(show) {
+  let el = document.getElementById('ad-sim');
+  if (show && !el) {
+    el = document.createElement('div');
+    el.id = 'ad-sim';
+    el.textContent = 'Ad banner (test)';
+    document.body.appendChild(el);
+  }
+  if (el) el.hidden = !show;
+  setAdSpace(show ? 56 : 0);
+}
