@@ -66,9 +66,9 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<!-- Google's test AdMob app ID. Replace with yours before a store build (STORE.md, "Ads"). -->
+	<!-- AdMob app ID for The Apple (iOS). Test builds still get only test ads; see js/monetization.js. -->
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-3940256099942544~1458002511</string>
+	<string>ca-app-pub-2529441843817238~1624548130</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>

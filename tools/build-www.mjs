@@ -3,7 +3,7 @@
 // Capacitor's bridge script so js/platform.js can reach the native plugins.
 //   npm run build            test build: Google's test ads
 //   npm run build:release    store build: real ads; refuses while any AdMob ID
-//                            is still one of Google's test IDs
+//                            is missing, malformed or still Google's test ID
 // then npx cap sync (the npm scripts in package.json do both).
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,20 +20,30 @@ if (!existsSync(bridge)) {
   console.error('Missing @capacitor/core. Run `npm install` first.');
   process.exit(1);
 }
-// A store build must never ship Google's test ads (or real ads with a test app ID).
+// A store build must never ship Google's test ads (or real ads with a test app
+// ID), and every AdMob ID must be well formed and from the same AdMob account.
 if (release) {
-  const TEST = 'ca-app-pub-3940256099942544';
-  const places = {
-    'js/monetization.js (AD_UNITS)': 'js/monetization.js',
-    'android/app/src/main/res/values/strings.xml (admob_app_id)': 'android/app/src/main/res/values/strings.xml',
-    'ios/App/App/Info.plist (GADApplicationIdentifier)': 'ios/App/App/Info.plist',
-  };
-  const left = Object.entries(places).filter(([, f]) => {
-    const text = readFileSync(join(root, f), 'utf8');
-    return f.endsWith('monetization.js') ? /AD_UNITS[\s\S]*ca-app-pub-3940256099942544\//.test(text) : text.includes(TEST);
-  }).map(([what]) => what);
-  if (left.length) {
-    console.error(`Release build stopped: these still have Google's test AdMob IDs (${TEST}):\n  ${left.join('\n  ')}\nPut your own AdMob IDs there first (STORE.md, "Ads").`);
+  const TEST_PUB = '3940256099942544';
+  const read = f => readFileSync(join(root, f), 'utf8');
+  const { AD_UNITS } = await import('../js/monetization.js');
+  const ids = [
+    ...Object.entries(AD_UNITS).flatMap(([os, u]) => Object.entries(u).map(([kind, id]) => [`js/monetization.js: AD_UNITS.${os}.${kind}`, id, '/'])),
+    ['android/app/src/main/res/values/strings.xml: admob_app_id', read('android/app/src/main/res/values/strings.xml').match(/name="admob_app_id">([^<]*)</)?.[1], '~'],
+    ['ios/App/App/Info.plist: GADApplicationIdentifier', read('ios/App/App/Info.plist').match(/<key>GADApplicationIdentifier<\/key>\s*<string>([^<]*)</)?.[1], '~'],
+  ];
+  const pubOf = id => /^ca-app-pub-(\d{16})[/~]\d{10}$/.exec(id || '')?.[1];
+  const pubs = new Set(ids.map(([, id]) => pubOf(id)).filter(p => p && p !== TEST_PUB));
+  const problems = ids.flatMap(([where, id, sep]) => {
+    const pub = pubOf(id);
+    if (!pub || !id.includes(sep)) return [`${where} = ${id ?? '(missing)'}: not an AdMob ${sep === '~' ? 'app ID (ca-app-pub-…~…)' : 'ad unit ID (ca-app-pub-…/…)'}`];
+    if (pub === TEST_PUB) return [`${where}: still Google's test ID`];
+    return [];
+  });
+  if (pubs.size > 1) problems.push(`the IDs come from different AdMob accounts (pub-${[...pubs].join(', pub-')})`);
+  const units = ids.filter(([, , sep]) => sep === '/').map(([, id]) => id);
+  if (new Set(units).size < units.length) problems.push('two ad units share the same ID');
+  if (problems.length) {
+    console.error(`Release build stopped:\n  ${problems.join('\n  ')}\nSee STORE.md, "Ads".`);
     process.exit(1);
   }
 }

@@ -13,16 +13,19 @@ export const FALLBACK_PRICE = '$2.99'; // shown until the store answers with the
 // includes under-13s, set this to true (fewer, kid-safe ads only).
 export const CHILD_DIRECTED = false;
 
-// AdMob ad unit IDs. These are Google's test IDs; `npm run build:release`
-// refuses to build until they (and the app IDs in the Android and iOS
-// projects) are your own. See STORE.md, "Ads".
+// AdMob ad unit IDs (publisher pub-2529441843817238). Test builds
+// (`npm run build`) still only get Google's test ads: js/platform.js asks with
+// isTesting, and the AdMob plugin then swaps in Google's test ad units, so
+// testing on your own phone never shows or counts real ads. Only
+// `npm run build:release` asks for these, and it refuses to build until the
+// Android and iOS app IDs are your own too. See STORE.md, "Ads".
 export const AD_UNITS = {
   android: {
-    banner: 'ca-app-pub-3940256099942544/9214589741',
-    rewarded: 'ca-app-pub-3940256099942544/5224354917',
+    banner: 'ca-app-pub-2529441843817238/4191001722',
+    rewarded: 'ca-app-pub-2529441843817238/4250711475',
   },
   ios: {
-    banner: 'ca-app-pub-3940256099942544/2435281174',
-    rewarded: 'ca-app-pub-3940256099942544/1712485313',
+    banner: 'ca-app-pub-2529441843817238/4079321081',
+    rewarded: 'ca-app-pub-2529441843817238/3735706152',
   },
 };

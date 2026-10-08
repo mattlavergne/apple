@@ -4,6 +4,6 @@
     <string name="title_activity_main">The Apple</string>
     <string name="package_name">com.mattlavergne.theapple</string>
     <string name="custom_url_scheme">com.mattlavergne.theapple</string>
-    <!-- Google's test AdMob app ID. Replace with yours before a store build (STORE.md, "Ads"). -->
-    <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>
+    <!-- AdMob app ID for The Apple (Android). Test builds still get only test ads; see js/monetization.js. -->
+    <string name="admob_app_id">ca-app-pub-2529441843817238~5240359513</string>
 </resources>
