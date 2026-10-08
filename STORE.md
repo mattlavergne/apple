@@ -113,7 +113,11 @@ Your publisher ID is `pub-2529441843817238`, so every ID below starts with `ca-a
    - AdMob verifies it once the app is published and its store listing names mattlavergne.com as the website (`store/listing.md` uses mattlavergne.com everywhere).
    - Check *Apps → app-ads.txt* in AdMob a day after launch.
    - If it says the file can't be found, look in Cloudflare *Security → Events* for blocked requests to `/app-ads.txt`.
-7. **Payments:** under *Payments*, add your bank details and tax info. AdMob pays out monthly once you pass $100.
+7. **Getting paid.** AdMob unlocks these steps as earnings grow:
+   - **Tax info, now:** *Payments → Manage settings → Payments profile → United States tax info → Manage tax info*. It's a short W-9 interview (legal name, address, SSN). Use the same legal name and address as your bank account.
+   - **Identity and address, around $10 earned:** AdMob may ask for an ID, then mails a PIN to your payment address. It can take 2–3 weeks to arrive; enter it under *Payments*. No payout happens without it.
+   - **Bank account, at $10 earned:** *Payments → Add payment method → Add new bank account*. A small test deposit (under $1.10) shows up in 2–5 days; enter that amount in *Payments* to confirm the account.
+   - **Payout:** monthly, around the 21st, once your balance passes $100. Smaller balances carry over.
 8. **Kids:** if the Play Console *Target audience* includes under-13s, set `CHILD_DIRECTED = true` in `js/monetization.js`.
 
 ### Purchases: set up the $2.99 unlock
@@ -132,6 +136,7 @@ The details to type in (product ID, name, description, review note) are in [`sto
    2. Add your **bank account**. The holder name must match your legal name.
    3. Fill in the **US tax form**: a W-9 if you're a US person.
    4. Wait until the agreement shows **Active**, which can take a day.
+   5. **EU trader status.** When you submit, Apple asks whether you're a "trader" under the EU Digital Services Act. An app with ads or purchases most likely makes you one. Apple then shows your address, phone number and email on the App Store page in EU countries. To keep your home address private, use a P.O. box. Or leave the EU countries out under *Pricing and Availability*, at the cost of those players.
 4. **Register the app's ID:**
    1. In [Certificates, IDs & Profiles](https://developer.apple.com/account/resources/identifiers/list), go to *Identifiers → + → App IDs → App*.
    2. Description: *The Apple*. Bundle ID: **Explicit**, `com.mattlavergne.theapple`. Then *Register*. In-App Purchase is included automatically.
@@ -154,6 +159,8 @@ The details to type in (product ID, name, description, review note) are in [`sto
 8. **Test:** builds from TestFlight use Apple's sandbox. Unlock shows the real purchase sheet marked *Sandbox*, and nothing is charged.
 
 #### Google (Play Console)
+
+**On hold for now.** New personal Play accounts must run a closed test with 12+ testers on Android for 14 days in a row before publishing. Organization accounts (a business such as an LLC, with a free D-U-N-S number) don't have this rule. The Android app is built and ready for whenever this changes.
 
 1. **Sign up** at [play.google.com/console/signup](https://play.google.com/console/signup):
    - Choose a **personal** account and pay $25 once.
