@@ -87,9 +87,55 @@ export function play(name) {
   if (fn) fn();
 }
 
+// Browsers only let audio start inside a tap, click or key press. This is
+// called from every one of those until the audio is actually running, and it
+// resumes from any stopped state (iOS uses "interrupted" after a call, an app
+// switch or a page loaded in the background, not just "suspended").
+let primed = false;
 export function unlock() {
   if (!ensure()) return;
-  if (ctx.state === 'suspended') ctx.resume();
+  if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  if (primed) return;
+  primed = true;
+  // iPhones mute web audio with the ringer switch unless the page says it is
+  // media playback (Safari 16.4+). Older iOS gets the same effect from a
+  // silent looping <audio> element.
+  try {
+    if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    else {
+      const el = new Audio(silentWavUrl());
+      el.loop = true;
+      el.setAttribute('playsinline', '');
+      el.play().catch(() => {});
+    }
+  } catch { /* not supported */ }
+  // Old iOS also wants a sound actually started inside the gesture.
+  const src = ctx.createBufferSource();
+  src.buffer = ctx.createBuffer(1, 1, 22050);
+  src.connect(ctx.destination);
+  src.start(0);
+}
+
+export const isRunning = () => !!ctx && ctx.state === 'running';
+
+// Quiet the game while it's in the background; pick back up when it returns.
+export function setBackground(hidden) {
+  if (!ctx) return;
+  if (hidden) ctx.suspend().catch(() => {});
+  else ctx.resume().catch(() => {});
+}
+
+function silentWavUrl() {
+  const samples = 2205; // 0.1s of silence at 22.05kHz, 8-bit mono
+  const buf = new ArrayBuffer(44 + samples);
+  const v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + samples, true); str(8, 'WAVEfmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 22050, true); v.setUint32(28, 22050, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  str(36, 'data'); v.setUint32(40, samples, true);
+  for (let i = 0; i < samples; i++) v.setUint8(44 + i, 128);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
 }
 
 export function setSfx(on) {
