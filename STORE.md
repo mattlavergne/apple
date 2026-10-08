@@ -99,15 +99,7 @@ Your publisher ID is `pub-2529441843817238`, so every ID below starts with `ca-a
 
 1. **Apps:** done. You created *The Apple* for Android and for iOS.
 2. **Ad units:** done. The four ad unit IDs (a banner and a rewarded ad for each app) are in `js/monetization.js` (`AD_UNITS`).
-3. **App IDs: still needed.** Each app also has an **app ID**, with a `~` where ad unit IDs have a `/` (like `ca-app-pub-2529441843817238~1234567890`). To find them:
-   1. In AdMob, go to *Apps → View all apps*.
-   2. The *App ID* column shows each app's ID. Click the copy icon next to it.
-
-   Send me both, or put them in:
-   - **Android:** `android/app/src/main/res/values/strings.xml` (`admob_app_id`);
-   - **iOS:** `ios/App/App/Info.plist` (`GADApplicationIdentifier`).
-
-   Until then, store builds refuse to build. Test builds keep working with Google's test app IDs.
+3. **App IDs:** done. Android `ca-app-pub-2529441843817238~5240359513` is in `android/app/src/main/res/values/strings.xml` (`admob_app_id`); iOS `ca-app-pub-2529441843817238~1624548130` is in `ios/App/App/Info.plist` (`GADApplicationIdentifier`). Store builds now build.
 4. **Link the apps to the stores:** later, once each app is live, open it in AdMob → *App settings* → *Add app store details* and search for it. AdMob reviews an app only after it's linked, and serves few ads until that review passes.
 5. **Consent form for the EU and UK:**
    1. Go to *Privacy & messaging*, then *European regulations* → *Create message*.
@@ -176,7 +168,7 @@ The details to type in (product ID, name, description, review note) are in [`sto
    - **App or game:** Game.
    - **Free or paid:** **Free**. A free app can never become paid, but purchases inside it are fine.
    - Tick the declarations, then *Create app*.
-4. **Make the upload file** (on your Mac):
+4. **Make the upload file** (on any computer: Windows, Mac or Linux):
    ```sh
    npm install
    npm run android        # test build (Google's test ads), opens Android Studio
@@ -186,7 +178,7 @@ The details to type in (product ID, name, description, review note) are in [`sto
    3. **Back up the key store and its password** (password manager plus cloud). Every future update must be signed with it.
    4. Build variant **release**. The file lands in `android/app/release/app-release.aab`.
 
-   A test build is right for this first upload. For the public release, put your AdMob IDs in and use `npm run release:android`.
+   Use test builds (`npm run android`, Google's test ads) for internal and closed testing, so you and your testers never tap real ads. For production, run `npm run release:android` instead, raise `versionCode` in `android/app/build.gradle`, and sign it the same way with the same key.
 5. **Upload it to internal testing:**
    1. Go to *Test and release → Testing → Internal testing → Create new release*. Keep *Play App Signing* with a Google-generated key (the default).
    2. Upload `app-release.aab`, then *Next → Save → Start rollout*. Play may ask you to fill in a few *App content* forms first.
@@ -196,7 +188,7 @@ The details to type in (product ID, name, description, review note) are in [`sto
    2. Product ID `com.mattlavergne.theapple.full`; name *Full Game*; description *All 100 levels, Endless mode and no ads.*
    3. Add a *purchase option*, then set the price to **$2.99** (Google converts it for other countries).
    4. *Save*, then **Activate**.
-7. **Free test purchases:** in the Play Console's account-level *Settings → License testing*, add your Gmail. Purchases from that account in the Play-installed test build use a test card and aren't charged.
+7. **Free test purchases:** in the Play Console's account-level *Settings → License testing*, add your Gmail, and later your closed testers' too. Purchases from those accounts in a Play-installed build use a test card and aren't charged. Anyone not on that list pays real money, even in a test.
 8. **Closed test:** before you can release to everyone, run a closed test with 12+ testers for 14 days. Then go to *Production*.
 
 ## Test vs. production
