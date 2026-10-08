@@ -214,6 +214,12 @@ const ledgerAfter = await store.evaluate(() => JSON.parse(localStorage.getItem('
 const earned = l => Object.values(l).reduce((t, x) => t + x.e, 0);
 const bonusPaid = earned(ledgerAfter) - earned(ledgerBefore);
 check((await calls3()).includes('AdMob.showRewardVideoAd') && bonusPaid >= 3, `watching the ad pays bonus stars (+${bonusPaid})`);
+// With isTesting the AdMob plugin swaps in Google's test ad units, so a test
+// build can never show or count a real ad.
+const adAsks = page => page.evaluate(() => window.__calls.filter(c => c[0] === 'AdMob' && ['initialize', 'showBanner', 'prepareRewardVideoAd'].includes(c[1])).map(c => [c[1], c[2]]));
+const testAsks = await adAsks(store);
+check(['initialize', 'showBanner', 'prepareRewardVideoAd'].every(m => testAsks.some(([n]) => n === m)) &&
+  testAsks.every(([m, o]) => m === 'initialize' ? o.initializeForTesting === true : o.isTesting === true && o.npa === true), 'test build: every ad request asks for test ads (not personalized)');
 // Buy the full game.
 await store.click('#res-map');
 await store.$eval('#map-scroll .node[data-level="21"]', el => el.click());
@@ -238,6 +244,21 @@ await again.addInitScript(fakeBridge, { os, seed: {}, storeOwned: true });
 await again.goto(base);
 await again.waitForSelector('#screen-title.show');
 check(await again.waitForFunction(() => document.documentElement.classList.contains('full-game'), null, { timeout: 5000 }).then(() => true, () => false), 'reinstall: the purchase comes back from the store by itself');
+// A store build (RELEASE = true) asks for this platform's own ad units, for real.
+const { AD_UNITS } = await import('../js/monetization.js');
+const ctx5 = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+const rel = await ctx5.newPage();
+rel.on('pageerror', e => errors.push(e.message));
+await rel.route('**/js/build-info.js', r => r.fulfill({ contentType: 'text/javascript', body: 'export const RELEASE = true;\n' }));
+await rel.addInitScript(fakeBridge, { os, seed });
+await rel.goto(base);
+await rel.waitForFunction(() => document.documentElement.classList.contains('ad-on'), null, { timeout: 5000 }).catch(() => {});
+await rel.evaluate(async () => (await import('/js/platform.js')).ads.prepareRewarded());
+const relAsks = await adAsks(rel);
+const ask = m => relAsks.find(([n]) => n === m)?.[1] || {};
+check(ask('initialize').initializeForTesting === false &&
+  ask('showBanner').adId === AD_UNITS[os].banner && ask('showBanner').isTesting === false && ask('showBanner').npa === true &&
+  ask('prepareRewardVideoAd').adId === AD_UNITS[os].rewarded && ask('prepareRewardVideoAd').isTesting === false, `store build: real ${os} ad units, not personalized`);
 check(errors.length === 0, `no errors in the purchase flows${errors.length ? ': ' + errors.join(' | ') : ''}`);
 
 await browser.close();

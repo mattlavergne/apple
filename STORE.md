@@ -22,7 +22,7 @@ After changing the game, `node tools/native-smoke.mjs` (after `npm run build`) c
 | Launch | Icon, Android adaptive icon and launch screen drawn from the in-game apple (`tools/make-icons.mjs` → `resources/` → `npx @capacitor/assets generate --assetPath resources`). |
 | Privacy | `privacy.html` (at https://mattlavergne.com/apple/_app/privacy.html, linked from How to play). Covers sync, ads and purchases. No analytics or accounts. |
 | Sync | The server already accepts requests from the apps (`capacitor://localhost`, `https://localhost`). |
-| Android | Verified: the debug APK builds (targets Android 16 / API 36; permissions are Internet and Vibrate only). |
+| Android | Verified: the debug APK builds (targets Android 16 / API 36). The app asks for Internet and Vibrate; Google's ad and billing libraries add their own (advertising ID, billing). None of them show a prompt. |
 
 ## Decisions to make before submitting
 
@@ -89,25 +89,34 @@ Before each release, bump the version: `versionCode` / `versionName` in `android
 **Safety rules:**
 - **A purchase is only ever granted, never taken away by the app.** If the store is offline or signed out, a paying player keeps the full game.
 - **A reinstall restores the purchase automatically** from the store account.
-- **Store builds can't ship test ads.** `npm run release:ios` and `npm run release:android` refuse to build while any AdMob ID is still one of Google's test IDs.
-- **Test builds always show Google's test ads.** Never tap real ads in your own app: Google bans accounts for it.
+- **Store builds can't ship broken ad settings.** `npm run release:ios` and `npm run release:android` refuse to build while any AdMob ID is missing, mistyped, still one of Google's test IDs, or from a different AdMob account than the others.
+- **Test builds always show Google's test ads,** even though your real ad unit IDs are in the code (the AdMob plugin swaps in Google's test units; `tools/native-smoke.mjs` checks this).
+- **Never tap a real ad in your own app.** Google bans accounts for it. A store build on your own phone shows real ads, so leave them alone there.
 
 ### Ads: set up AdMob
 
 Your publisher ID is `pub-2529441843817238`, so every ID below starts with `ca-app-pub-2529441843817238`.
 
-1. In [AdMob](https://admob.google.com), go to *Apps → Add app → Android*. When asked whether the app is published, answer *No* (you can link the store listing later). Name it *The Apple*. You get an **app ID** like `ca-app-pub-2529441843817238~1234567890`.
-2. In that app, go to *Ad units → Add ad unit* and create:
-   - **Banner**, named *Menu banner*;
-   - **Rewarded**, named *Bonus stars*. The reward setting doesn't matter, because the game decides the reward; use 1 and "bonus".
+1. **Apps:** done. You created *The Apple* for Android and for iOS.
+2. **Ad units:** done. The four ad unit IDs (a banner and a rewarded ad for each app) are in `js/monetization.js` (`AD_UNITS`).
+3. **App IDs: still needed.** Each app also has an **app ID**, with a `~` where ad unit IDs have a `/` (like `ca-app-pub-2529441843817238~1234567890`). To find them:
+   1. In AdMob, go to *Apps → View all apps*.
+   2. The *App ID* column shows each app's ID. Click the copy icon next to it.
 
-   Each gets an **ad unit ID** like `ca-app-pub-2529441843817238/1234567890`.
-3. Repeat steps 1–2 for **iOS**. That's 6 IDs in total.
-4. Put them in three places (or send them to me):
-   - the four ad unit IDs → `js/monetization.js` (`AD_UNITS`);
-   - the Android app ID → `android/app/src/main/res/values/strings.xml` (`admob_app_id`);
-   - the iOS app ID → `ios/App/App/Info.plist` (`GADApplicationIdentifier`).
-5. **Consent form for the EU and UK:** go to *Privacy & messaging → European regulations → Create message*, pick both apps and publish it. The game shows this form by itself, but only once it's published here.
+   Send me both, or put them in:
+   - **Android:** `android/app/src/main/res/values/strings.xml` (`admob_app_id`);
+   - **iOS:** `ios/App/App/Info.plist` (`GADApplicationIdentifier`).
+
+   Until then, store builds refuse to build. Test builds keep working with Google's test app IDs.
+4. **Link the apps to the stores:** later, once each app is live, open it in AdMob → *App settings* → *Add app store details* and search for it. AdMob reviews an app only after it's linked, and serves few ads until that review passes.
+5. **Consent form for the EU and UK:**
+   1. Go to *Privacy & messaging*, then *European regulations* → *Create message*.
+   2. **Apps:** select both.
+   3. **Privacy policy:** AdMob asks for one URL per app. Use https://mattlavergne.com/apple/_app/privacy.html for both. It's the policy the game already links to, and it already covers ads and consent. If AdMob or a store ever says it can't open that page, use https://mattlavergne.github.io/apple/privacy.html instead: the same page, without Cloudflare's bot check in front of it.
+   4. Leave everything else (language, consent options, look) as it is.
+   5. Click *Publish*.
+
+   The game shows this form by itself, but only once it's published here. Skip the *IDFA explainer* message: the game never asks iOS's tracking question, so it would never be shown.
 6. **app-ads.txt:** done. It's served at https://mattlavergne.com/app-ads.txt by Landing-Page.
    - AdMob verifies it once the app is published and its store listing names mattlavergne.com as the website (`store/listing.md` uses mattlavergne.com everywhere).
    - Check *Apps → app-ads.txt* in AdMob a day after launch.
