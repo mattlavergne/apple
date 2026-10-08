@@ -45,9 +45,31 @@ Run `npm run sync` after every game change, before building the apps.
 
 **Android** (Windows, Mac or Linux): install [Android Studio](https://developer.android.com/studio), run `npm run android`, then *Build → Generate Signed App Bundle* (.aab). Create an upload key when asked and back it up (with Play App Signing, Google holds the real signing key).
 
-**iOS** needs Xcode, which only runs on a Mac. Without a Mac, use a cloud Mac build service (Codemagic, Ionic Appflow, or GitHub Actions' macOS runners). With a Mac: `npm run ios`, set your team under *Signing & Capabilities*, then *Product → Archive → Distribute App*.
+**iOS** needs Xcode, which only runs on a Mac. On your Mac:
+
+1. Install **Xcode** from the Mac App Store (it's big, so allow an hour), open it once so it finishes installing, then install **Node.js** (the LTS version from nodejs.org).
+2. In Terminal:
+   ```sh
+   git clone https://github.com/mattlavergne/apple.git
+   cd apple
+   npm install
+   npm run ios
+   ```
+   Xcode opens with the app.
+3. **Try it on your iPhone (free, no developer account needed yet):**
+   1. Plug in the phone and pick it as the run destination at the top of Xcode.
+   2. Under *App → Signing & Capabilities*, set **Team** to your Apple ID (Xcode → Settings → Accounts to add it), then press ▶.
+   3. The first time, the iPhone needs two settings: *Settings → Privacy & Security → Developer Mode* turned on, and the developer trusted under *Settings → General → VPN & Device Management*.
+   4. A free Apple ID's install lasts 7 days.
+4. **Ship it (after joining the Apple Developer Program):**
+   1. In App Store Connect, *Apps → + → New App*, with bundle ID `com.mattlavergne.theapple`.
+   2. In Xcode, set Team to the paid team, then *Product → Archive → Distribute App → App Store Connect → Upload*.
+   3. The build shows up under *TestFlight* in about 15 minutes. Add yourself as a tester and install it with the TestFlight app.
+   4. When it's ready, attach the build to the version in App Store Connect and submit for review.
 
 Before each release, bump the version: `versionCode` / `versionName` in `android/app/build.gradle`, and *Version* / *Build* in Xcode.
+
+**Store listing:** the copy, screenshots and Play feature graphic are ready in [`store/`](store/listing.md). `node tools/store-shots.mjs` regenerates the images from the current game.
 
 ## Store accounts and review
 

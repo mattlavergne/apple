@@ -1185,6 +1185,16 @@ platform.onBack(() => {
   // A perk pick waits for a choice.
 });
 
+// The HUD can change height mid-level (a chip wrapping onto a new line on a
+// phone), so the canvas follows the space it actually has, not just the window.
+if ('ResizeObserver' in window) {
+  let pending = false;
+  new ResizeObserver(() => {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; renderer.resize(); });
+  }).observe($('#stage'));
+}
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
