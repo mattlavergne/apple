@@ -30,7 +30,9 @@ After changing the game, `node tools/native-smoke.mjs` (after `npm run build`) c
 2. **App ID.** `com.mattlavergne.theapple`. It can never change after the first upload. Change it now (in `capacitor.config.json`, `android/app/build.gradle` and the Xcode project) if you want something else.
 3. **Money.** Decide before launch, since it changes the privacy answers and age rating. With a kid-friendly audience, the cleanest options are paid upfront, or free with a one-time "full game" unlock (e.g. worlds 1–2 free). Ads mean a tracking prompt on iOS, a consent form in Europe and different privacy labels. Selling stars or upgrades for real money in a game kids play draws extra scrutiny. In-app purchases would be a plugin wired through `js/platform.js`.
 4. **iPad.** The app currently supports iPad (it plays well in landscape). That means also uploading iPad screenshots. To skip that, set Targeted Device Family to iPhone only in Xcode.
-5. **Contact.** Both stores ask for a support URL and contact email. The privacy policy points to mattlavergne.com; make sure that has a way to reach you, or put an email in `privacy.html`.
+5. **Kids category: probably not.** The game is fine for a 4+ rating without being *in* Apple's Kids category. That category adds rules, such as a parental gate before any link that leaves the app (the privacy link counts).
+
+**Contact details for both stores:** support email `contact@mattlavergne.com` (also in the privacy policy). Support URL: https://mattlavergne.github.io/apple/privacy.html#contact.
 
 ## Building
 
