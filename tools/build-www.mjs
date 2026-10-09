@@ -54,12 +54,14 @@ for (const f of SHIP) if (existsSync(join(root, f))) cpSync(join(root, f), join(
 // The web copy's test tools never ship in the app (js/main.js only loads them
 // outside the app, so nothing misses them).
 rmSync(join(out, 'js/admin.js'));
+rmSync(join(out, 'js/boot-check.js'));
 cpSync(bridge, join(out, 'capacitor.js'));
 
 const html = join(out, 'index.html');
 const page = readFileSync(html, 'utf8');
 const tag = '<script type="module" src="js/main.js"></script>';
-if (!page.includes(tag)) throw new Error('index.html no longer loads js/main.js the expected way');
-writeFileSync(html, page.replace(tag, `<script src="capacitor.js"></script>\n  ${tag}`));
+const check = '<script src="js/boot-check.js"></script>\n  ';
+if (!page.includes(tag) || !page.includes(check)) throw new Error('index.html no longer loads js/main.js the expected way');
+writeFileSync(html, page.replace(check, '').replace(tag, `<script src="capacitor.js"></script>\n  ${tag}`));
 if (release) writeFileSync(join(out, 'js/build-info.js'), '// Store build (written by tools/build-www.mjs --release).\nexport const RELEASE = true;\n');
 console.log(`www/ ready (${release ? 'release: real ads' : 'test: Google test ads'})`);
