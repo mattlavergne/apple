@@ -1,38 +1,13 @@
-// Offline support: the game always opens, even with no connection, and a new
-// version appears on the next launch. Bump VERSION when the file list changes.
-const VERSION = 'apple-v5';
-const SHELL = [
-  './', 'index.html', 'privacy.html', 'css/style.css', 'favicon.svg', 'manifest.webmanifest',
-  'js/main.js', 'js/engine.js', 'js/render.js', 'js/config.js', 'js/audio.js', 'js/input.js', 'js/save.js',
-  'js/levels.js', 'js/sync.js', 'js/platform.js',
-  'fonts/fredoka-latin.woff2', 'fonts/fredoka-latin-ext.woff2',
-  'assets/icon-192.png', 'assets/icon-512.png', 'assets/apple-touch-icon.png',
-];
-
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
-});
-
+// Retired. The web copy used to work offline through this service worker, but
+// it's now a private test site behind a sign-in, which an old worker couldn't
+// load pages through (it showed a blank page). A browser that still has the old
+// worker installs this one on its next update check: it deletes the cached
+// files, removes itself and reloads the open pages from the network.
+self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k))))
-    .then(() => self.clients.claim()));
-});
-
-// Network first, so a new version shows up on the very next launch; the cache
-// is only the fallback when you're offline.
-self.addEventListener('fetch', e => {
-  const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  if (new URL(req.url).pathname.includes('/api/')) return;
-  e.respondWith((async () => {
-    const cache = await caches.open(VERSION);
-    try {
-      const res = await fetch(req, { cache: 'no-cache' });
-      if (res.ok) cache.put(req, res.clone());
-      return res;
-    } catch {
-      return (await cache.match(req, { ignoreSearch: true })) || Response.error();
-    }
+  e.waitUntil((async () => {
+    for (const key of await caches.keys()) await caches.delete(key);
+    await self.registration.unregister();
+    for (const client of await self.clients.matchAll({ type: 'window' })) client.navigate(client.url).catch(() => {});
   })());
 });

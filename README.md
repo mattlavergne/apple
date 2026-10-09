@@ -74,7 +74,7 @@ Every 5th level is a **boss level** with King Cobra Carl. From level 11 on, ther
 
 - **Swipe** (default on touch screens): swipe to roll, swipe again to turn (even mid-drag), tap to stop. The apple also stops when it bumps into something. A hold-to-steer **joystick** is available in the menu.
 - Haptics on bites, crashes, close calls and quakes (Android browsers and both store apps; Safari on iPhone has no vibration).
-- Installable as an app with offline play (`manifest.webmanifest` + `sw.js`). The service worker is network-first: you always get the latest version when online, and the cached copy only when offline.
+- The store app plays offline. The web copy (a private test site) has no offline mode: its old service worker is retired (`sw.js` now only removes itself).
 
 ## Store app
 
@@ -85,16 +85,17 @@ The app is free to play with ads: levels 1–20 and the Daily Run are free, and 
 ## Hosting
 
 Players get the game from the App Store. The web copy is the developer's
-private test site at **mattlavergne.com/apple**, locked with Cloudflare Access
-and served through the homepage Worker in
-[`mattlavergne/landing-page`](https://github.com/mattlavergne/landing-page). An
-`/apple` entry in that Worker's `APPS` registry opens the game in a mattOS app
-window and reverse-proxies `/apple/_app/*` to **GitHub Pages**. Pushing here
-updates the test site within a minute or two.
+private test site at **mattlavergne.com/apple** (which opens
+`/apple/test/`), locked with Cloudflare Access and served through the homepage
+Worker in [`mattlavergne/landing-page`](https://github.com/mattlavergne/landing-page).
+The Worker reverse-proxies `/apple/test/*` to **GitHub Pages**, or reads this
+repo directly with a token once it's private (STORE.md, "Make the repo
+private"). Pushing here updates the test site within a minute or two.
 
 Opened directly at `mattlavergne.github.io/apple`, the game doesn't run; it
-says it's coming to the App Store. The privacy policy (`privacy.html`) is
-public at mattlavergne.com/privacy/apple and also ships inside the app.
+says it's coming to the App Store. The privacy policy (`privacy.html`) ships
+inside the app; its public copy at mattlavergne.com/privacy/apple lives in
+landing-page (`public/privacy/apple.html`), so change both together.
 
 On the test site, the 🛠️ button opens test tools (`js/admin.js`): a separate
 test save that never syncs, a free app / bought switch, and level, star and

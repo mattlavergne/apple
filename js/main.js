@@ -1357,10 +1357,13 @@ function frame(now) {
 // ?debug exposes the game for testing, e.g. __game.level = 12; __game.startLevel()
 if (new URLSearchParams(location.search).has('debug')) Object.assign(window, { __game: game, __audio: audio, __renderer: renderer, __save: save, __cloud: cloud });
 
-// Offline play + installable app. Skipped on file:// and plain-http hosts, and
-// in the store app, which already has every file on the phone.
-if (!platform.isNative && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+// No offline helper (service worker) any more: the web copy is a private test
+// site behind a sign-in, and an old helper couldn't load pages through that
+// sign-in, which left the page blank. Remove any helper an earlier version
+// installed, along with its cached files.
+if (!platform.isNative && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister())).catch(() => {});
+  if ('caches' in window) caches.keys().then(keys => keys.filter(k => k.startsWith('apple-')).forEach(k => caches.delete(k))).catch(() => {});
 }
 
 syncToggles();
@@ -1410,3 +1413,4 @@ if (!platform.isNative) {
 }
 requestAnimationFrame(frame);
 requestAnimationFrame(() => requestAnimationFrame(platform.appReady));
+window.__appleStarted = true; // js/boot-check.js: the game is up

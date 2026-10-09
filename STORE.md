@@ -248,7 +248,9 @@ The details to type in (product ID, name, description, review note) are in [`sto
 
 ## Test site (mattlavergne.com/apple)
 
-The web copy of the game is now only for you: players get the app, and the app never links to it.
+The web copy of the game is now only for you: players get the app, and the app never links to it. https://mattlavergne.com/apple opens it full-screen at `/apple/test/`. Your homepage lists The Apple as in progress, with no way in.
+
+**If it ever won't start:** after a few seconds the page says "The game didn't start" and offers *Back to my real save*. You can also open https://mattlavergne.com/apple/test/?realsave yourself. Either way, the test tools' settings are switched off and nothing is deleted.
 
 **Lock it (once), the same way as Chat and What To Eat:**
 1. Merge the landing-page pull request first. It moves the two things the app needs out of `/apple`: the sync server to `/api/apple` and the privacy policy to `/privacy/apple`.
@@ -269,7 +271,23 @@ The web copy of the game is now only for you: players get the app, and the app n
 - **Play** (test save): open any level. *Win this level* and *Lose this level* work while a level is paused.
 - **Save data:** copy the save as JSON, or load JSON into the test save.
 
-Anything that changes progress only works on the test save, so a test can't change your real progress or reach your phone through sync. `node tools/test-site.mjs` checks all of this. The app never contains the tools (`tools/build-www.mjs` leaves `js/admin.js` out), and the GitHub Pages copy at mattlavergne.github.io/apple just says the game is coming to the App Store. The code itself stays public on GitHub, as before.
+Anything that changes progress only works on the test save, so a test can't change your real progress or reach your phone through sync. `node tools/test-site.mjs` checks all of this. The app never contains the tools (`tools/build-www.mjs` leaves `js/admin.js` and `js/boot-check.js` out), and the GitHub Pages copy at mattlavergne.github.io/apple just says the game is coming to the App Store.
+
+### Make the repo private
+
+The test site and its files come from GitHub Pages, which only serves public repos on GitHub's free plan. Making the repo private on its own would turn the test site off. (The privacy policy doesn't depend on it: landing-page has its own copy.) So first let the homepage Worker read the repo directly:
+
+1. **Make a read-only token.** On GitHub, go to *Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token*:
+   - **Name:** *mattlavergne.com test site*. **Expiration:** the longest offered. Put a reminder in your calendar a week before it ends.
+   - **Repository access:** *Only select repositories* → `mattlavergne/apple`.
+   - **Permissions → Repository permissions → Contents:** *Read-only*. Nothing else.
+   - *Generate token*, and copy it.
+2. **Give it to the Worker.** In Cloudflare, go to *Workers & Pages → trafficmap-proxy → Settings → Variables and Secrets → Add*: type **Secret**, name `GITHUB_TOKEN`, paste the token, then *Deploy*. A secret stays when GitHub Actions deploys the Worker again.
+3. **Check it:** https://mattlavergne.com/apple/test/__source should say *The repo, with the GitHub token*. The test site should still load.
+4. **Make it private:** on GitHub, open the repo's *Settings → General → Danger Zone → Change visibility → Private*. GitHub Pages turns itself off.
+5. **Check again:** the test site still loads, and https://mattlavergne.com/privacy/apple still shows the policy.
+
+When the token expires, only the test site stops loading, with a message naming the token. The app, sync and the privacy policy keep working. Make a new token and replace the secret.
 
 ## Store accounts and review
 

@@ -29,6 +29,13 @@ const safe = (fn, fallback) => {
 // sync code. In the app `admin` is always empty.
 const ADMIN_KEY = 'the-apple-admin';
 export const admin = isNative ? {} : (() => {
+  // The way back if a test setting ever stops the game from starting:
+  // open the test site with ?realsave (js/boot-check.js offers it too).
+  if (new URLSearchParams(location.search).has('realsave')) {
+    try { localStorage.removeItem(ADMIN_KEY); } catch { /* storage blocked */ }
+    history.replaceState(null, '', location.pathname + location.hash);
+    return {};
+  }
   try { return JSON.parse(localStorage.getItem(ADMIN_KEY)) || {}; } catch { return {}; }
 })();
 export function setAdmin(changes) {

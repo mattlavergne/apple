@@ -155,6 +155,28 @@ check(realAfter.adventure.unlocked === 5 && realAfter.sync?.code === 'ABCDEFGHJK
 check((await page.textContent('#adv-sub')).includes('Level 5'), 'game shows the real progress again');
 check(errors.length === 0, `no errors${errors.length ? ': ' + errors.join(' | ') : ''}`);
 
+// If a test setting ever stops the game from starting, the page says so and
+// offers the way back (js/boot-check.js), and ?realsave turns the settings off.
+await page.evaluate(() => localStorage.setItem('the-apple-admin', JSON.stringify({ testSave: true, freeApp: true })));
+await page.route('**/js/levels.js', r => r.fulfill({ contentType: 'text/javascript', body: 'export const = broken;' }));
+await page.goto(base);
+await page.waitForSelector('#boot-rescue', { timeout: 9000 }).catch(() => {});
+check(await page.isVisible('#boot-rescue') && !(await page.evaluate(() => window.__appleStarted)), 'a game that fails to start shows "The game didn\u2019t start", not a blank page');
+await page.unroute('**/js/levels.js');
+await page.click('#boot-real');
+await title();
+check(await page.evaluate(() => localStorage.getItem('the-apple-admin') === null && !location.search) && (await page.textContent('#adv-sub')).includes('Level 5'), '"Back to my real save" (?realsave): test settings off, real save back');
+check(!(await page.isVisible('#boot-rescue')), 'no rescue box on a normal start');
+await page.evaluate(() => localStorage.setItem('the-apple-admin', JSON.stringify({ testSave: true })));
+await page.goto(base + '?realsave');
+await title();
+check(await page.evaluate(() => localStorage.getItem('the-apple-admin') === null) && (await page.textContent('#adv-sub')).includes('Level 5'), '?realsave works on its own too');
+
+// The privacy policy has a public copy in landing-page; the two must match.
+const lpPrivacy = join(root, '../landing-page/public/privacy/apple.html');
+if (existsSync(lpPrivacy)) check(readFileSync(lpPrivacy, 'utf8') === readFileSync(join(root, 'privacy.html'), 'utf8'), 'privacy.html matches the public copy in landing-page');
+else console.log('SKIP  privacy copy check (no landing-page checkout next to this repo)');
+
 // The public GitHub Pages copy doesn't run the game.
 const gh = await ctx.newPage();
 await gh.route('https://mattlavergne.github.io/apple/**', r => {
