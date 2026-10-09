@@ -13,6 +13,11 @@ export const FALLBACK_PRICE = '$2.99'; // shown until the store answers with the
 // includes under-13s, set this to true (fewer, kid-safe ads only).
 export const CHILD_DIRECTED = false;
 
+// The game's store pages, for the Share button. The app never links to the
+// website. Fill in the App Store page once App Store Connect shows the app's
+// Apple ID (App Information), e.g. ios: 'https://apps.apple.com/app/id1234567890'.
+export const STORE_URLS = { ios: '', android: '' };
+
 // AdMob ad unit IDs (publisher pub-2529441843817238). Test builds
 // (`npm run build`) still only get Google's test ads: js/platform.js asks with
 // isTesting, and the AdMob plugin then swaps in Google's test ad units, so
@@ -29,3 +34,10 @@ export const AD_UNITS = {
     rewarded: 'ca-app-pub-2529441843817238/3735706152',
   },
 };
+
+// Your own phones and tablets. AdMob sends these devices test ads even in the
+// store build, so you can use the App Store version yourself without risking
+// your AdMob account. Get a device's ID from Xcode's console (STORE.md, "Your
+// phone as an AdMob test device") and add it as a string, e.g.
+//   export const TEST_DEVICES = ['2077ef9a63d2b398840261c8221a0c9b'];
+export const TEST_DEVICES = [];

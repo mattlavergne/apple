@@ -46,6 +46,12 @@ const DEVICES = {
   'android-phone': { out: [1080, 1920], viewport: { width: 360, height: 640 }, scale: 3 },
 };
 
+// The web copy's test tools button isn't part of the game.
+const hideTestTools = () => document.addEventListener('DOMContentLoaded', () => {
+  const st = document.createElement('style');
+  st.textContent = '#admin-btn, #admin-panel { display: none !important; }';
+  document.head.appendChild(st);
+});
 async function home(page) {
   await page.goto(base);
   await page.waitForSelector('#screen-title.show');
@@ -182,6 +188,7 @@ for (const [name, d] of Object.entries(DEVICES)) {
   if (only.length && !only.includes(name)) continue;
   const ctx = await browser.newContext({ viewport: d.viewport, deviceScaleFactor: d.scale, isMobile: true, hasTouch: true });
   await ctx.addInitScript(save => { if (!localStorage.getItem('the-apple.save.v1')) localStorage.setItem('the-apple.save.v1', JSON.stringify(save)); }, SAVE);
+  await ctx.addInitScript(hideTestTools);
   const page = await ctx.newPage();
   for (const scene of SCENES) {
     await scene.go(page);
@@ -196,6 +203,7 @@ for (const [name, d] of Object.entries(DEVICES)) {
 if (!only.length || only.includes('iap-review')) {
   const ctx = await browser.newContext({ viewport: { width: 430, height: 932 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   await ctx.addInitScript(save => { if (!localStorage.getItem('the-apple.save.v1')) localStorage.setItem('the-apple.save.v1', JSON.stringify(save)); }, { ...SAVE, adventure: { unlocked: 21, stars: Object.fromEntries(Array.from({ length: 20 }, (_, i) => [i + 1, 3])), best: {} } });
+  await ctx.addInitScript(hideTestTools);
   const page = await ctx.newPage();
   await page.goto(`${base}&store`);
   await page.waitForSelector('#screen-title.show');

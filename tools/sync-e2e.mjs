@@ -53,7 +53,7 @@ const browser = await chromium.launch(process.env.CHROMIUM ? { executablePath: p
 const errors = [];
 async function device(opts) {
   const ctx = await browser.newContext(opts);
-  await ctx.route('https://mattlavergne.com/apple/api/**', api);
+  await ctx.route('https://mattlavergne.com/api/apple/**', api);
   const page = await ctx.newPage();
   page.on('pageerror', e => errors.push(e.message));
   // Expected from the sync API: 404 (a new code has nothing saved yet), 409
@@ -62,7 +62,7 @@ async function device(opts) {
   // a real problem.
   page.on('console', m => { if (m.type() === 'error' && !/status of (404|409|410)/.test(m.text())) errors.push(m.text()); });
   page.on('response', r => {
-    const api = r.url().includes('/apple/api/save/');
+    const api = r.url().includes('/api/apple/save/');
     if ((r.status() === 404 && !(api && r.request().method() === 'GET')) || (r.status() === 409 && !api)) errors.push(`${r.status()} ${r.url()}`);
   });
   return { ctx, page };

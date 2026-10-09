@@ -1,0 +1,33 @@
+{
+  "identifier" : "7A1E5C0D",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "2.99",
+      "familyShareable" : false,
+      "internalID" : "6740000001",
+      "localizations" : [
+        {
+          "description" : "All 100 levels, Endless mode and no ads.",
+          "displayName" : "Full Game",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.mattlavergne.theapple.full",
+      "referenceName" : "Full Game",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 2,
+    "minor" : 0
+  }
+}

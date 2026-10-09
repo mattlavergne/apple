@@ -71,9 +71,9 @@ Upload them in this order. Each set is at the exact size its store asks for.
 All on mattlavergne.com, because AdMob checks `app-ads.txt` on the website the listing names (https://mattlavergne.com/app-ads.txt).
 
 - **Support email:** contact@mattlavergne.com
-- **Support URL:** https://mattlavergne.com/apple/_app/privacy.html#contact
-- **Privacy policy URL:** https://mattlavergne.com/apple/_app/privacy.html
-- **App Store marketing URL:** https://mattlavergne.com/apple
+- **Support URL:** https://mattlavergne.com/privacy/apple#contact
+- **Privacy policy URL:** https://mattlavergne.com/privacy/apple
+- **App Store marketing URL:** leave empty (it's optional, and mattlavergne.com/apple is your private test site)
 - **Google Play website:** https://mattlavergne.com
 
 ## In-app purchase (both stores)

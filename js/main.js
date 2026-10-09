@@ -4,7 +4,7 @@ import { Renderer, drawApple } from './render.js';
 import * as audio from './audio.js';
 import * as platform from './platform.js';
 import { RELEASE } from './build-info.js';
-import { FREE_LEVELS, PRODUCT_ID, FALLBACK_PRICE, CHILD_DIRECTED, AD_UNITS } from './monetization.js';
+import { FREE_LEVELS, PRODUCT_ID, FALLBACK_PRICE, CHILD_DIRECTED, AD_UNITS, TEST_DEVICES, STORE_URLS } from './monetization.js';
 import { Input } from './input.js';
 import { KEY as SAVE_KEY, load, store, readStored, backup, withDefaults } from './save.js';
 import { newCode, formatCode, normalizeCode, CloudSync, safeMerge, stableStringify, regressions, SAVE_FIELDS } from './sync.js';
@@ -17,10 +17,20 @@ import {
 const $ = sel => document.querySelector(sel);
 const $$ = sel => [...document.querySelectorAll(sel)];
 
+// The GitHub Pages copy only exists so mattlavergne.com/apple (locked to the
+// developer) can serve it. Opened directly, it isn't the game.
+if (location.hostname.endsWith('github.io')) {
+  document.body.innerHTML = '<p style="font:20px system-ui,sans-serif;text-align:center;margin:30vh 16px">\ud83c\udf4e The Apple is coming to the App Store.</p>';
+  throw new Error('Private test copy');
+}
+
 // In the app, saved progress comes from native storage, which is asynchronous.
 await platform.ready;
 platform.store.load();
 const save = load();
+// The test save (test tools on the web copy) never syncs, so nothing done
+// there can reach the real progress on your devices.
+if (platform.admin.testSave) delete save.sync;
 const canvas = $('#game');
 const renderer = new Renderer(canvas);
 const input = new Input();
@@ -127,8 +137,10 @@ function replaceProgress(merged) {
 // the stored save in first. If that merge is refused, the stored save goes to
 // the backups before this tab's save replaces it.
 let lastWritten = platform.storage.get(SAVE_KEY);
+let savesOff = false; // the test tools changed the save and are reloading the page
 function writeSave() {
   clearTimeout(saveTimer);
+  if (savesOff) return;
   const stored = platform.storage.get(SAVE_KEY);
   if (stored && stored !== lastWritten) {
     const other = readStored();
@@ -156,7 +168,7 @@ function absorbLocal(other) {
 // Another tab saved: pick it up right away, and if that tab's write raced
 // one from here, store the combined save so storage has both.
 window.addEventListener('storage', e => {
-  if (e.key !== SAVE_KEY || !e.newValue) return;
+  if (savesOff || e.key !== platform.storage.key(SAVE_KEY) || !e.newValue) return;
   let other = null;
   try { other = JSON.parse(e.newValue); } catch { return; /* damaged; load() sets those aside */ }
   if (absorbLocal(other) || regressions(other, syncPayload()).length) writeSave();
@@ -233,41 +245,17 @@ function setSyncStatus(msg) {
   const el = document.getElementById('sync-status');
   if (el) el.textContent = msg;
 }
-const syncLink = code => platform.webLink(`#sync=${code}`);
-
-let qrLib = null;
-function loadQr() {
-  if (qrLib) return qrLib;
-  qrLib = new Promise((resolve, reject) => {
-    const sc = document.createElement('script');
-    sc.src = 'vendor/qrcode-1.4.4.min.js';
-    sc.onload = () => resolve(window.qrcode);
-    sc.onerror = reject;
-    document.head.appendChild(sc);
-  });
-  return qrLib;
-}
-
 function renderSync() {
   const code = save.sync?.code;
   $('#sync-off').classList.toggle('hidden', !!code);
   $('#sync-on').classList.toggle('hidden', !code);
   $('#btn-sync').setAttribute('aria-pressed', String(!!code));
-  if (code) {
-    $('#sync-code').textContent = formatCode(code);
-    const qrEl = $('#sync-qr');
-    qrEl.innerHTML = '';
-    loadQr().then(qrcode => {
-      const qr = qrcode(0, 'M');
-      qr.addData(syncLink(code));
-      qr.make();
-      qrEl.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
-    }).catch(() => { qrEl.textContent = ''; });
-  }
+  if (code) $('#sync-code').textContent = formatCode(code);
   const last = save.sync?.lastSync;
   setSyncStatus(syncMsg || (last ? `Last synced ${new Date(last).toLocaleString()}` : ''));
 }
 function openSync(prefill) {
+  if (platform.admin.testSave) { toast('Sync is off in the test save, so tests never reach your real progress.'); return; }
   audio.unlock();
   returnTo = 'title';
   syncMsg = '';
@@ -1070,10 +1058,12 @@ async function shareRun() {
     r.adv ? `${r.score.toLocaleString()} pts` : `Level ${r.level} \u00b7 ${r.score.toLocaleString()} pts`,
     r.grades.map(x => GRADE_EMOJI[x]).join('') || '\u2014',
     `\ud83d\udc0d\ud83d\udca5 ${snakes} \u00b7 \u26a1 nerve \u00d7${(1 + 0.25 * r.nerve).toFixed(2).replace(/\.?0+$/, '')}`,
-    'Can you beat it? mattlavergne.com/apple',
+    'Can you beat it?',
   ].join('\n');
+  // The store page, once there is one (monetization.js). Never the website.
+  const url = STORE_URLS[platform.os] || STORE_URLS.ios || undefined;
   try {
-    if (await platform.share({ text }) === 'copied') toast('Result copied! Paste it anywhere.');
+    if (await platform.share({ text, url }) === 'copied') toast('Result copied! Paste it anywhere.');
   } catch {
     toast('Couldn\u2019t copy. Your browser blocked it.');
   }
@@ -1172,10 +1162,10 @@ $('#sync-copy').addEventListener('click', async () => {
   // Phones open the share sheet (Messages, AirDrop, Copy...) instead.
   const code = save.sync.code;
   try {
-    if (await platform.share({ text: `My The Apple sync code: ${formatCode(code)}`, url: syncLink(code) }) === 'copied') toast('Sync link copied!');
+    if (await platform.share({ text: `My The Apple sync code: ${formatCode(code)}` }) === 'copied') toast('Sync code copied!');
   } catch { toast(formatCode(code)); }
 });
-if (platform.sharesWithSheet) $('#sync-copy').textContent = 'Send link';
+if (platform.sharesWithSheet) $('#sync-copy').textContent = 'Send code';
 $('#sync-stop').addEventListener('click', () => {
   // Progress stays on this device; it just stops talking to the cloud.
   syncOff('Sync is off on this device. Your progress is still here.');
@@ -1209,6 +1199,24 @@ for (const b of $$('[data-controls]')) b.addEventListener('click', () => {
 });
 $('#btn-orchard').addEventListener('click', () => { audio.unlock(); audio.play('click'); openOrchard('title'); });
 $('#btn-help').addEventListener('click', () => { audio.unlock(); audio.play('click'); returnTo = 'title'; show('help'); });
+// The privacy policy is the same privacy.html that's published on the web,
+// shipped inside the app, so reading it needs no connection and no website.
+$('#help-privacy').addEventListener('click', async () => {
+  audio.play('click');
+  const body = $('#privacy-body');
+  if (!body.childElementCount) {
+    try {
+      const page = new DOMParser().parseFromString(await (await fetch('privacy.html')).text(), 'text/html');
+      body.append(...page.querySelector('main').children);
+      body.querySelectorAll('a[href^="http"]').forEach(a => { a.target = '_blank'; a.rel = 'noopener'; });
+    } catch {
+      body.textContent = 'The privacy policy couldn\u2019t be opened. Please try again.';
+    }
+  }
+  show('privacy');
+  body.parentElement.scrollTop = 0;
+});
+$('#privacy-back').addEventListener('click', () => { audio.play('click'); show('help'); });
 $$('[data-back]').forEach(b => b.addEventListener('click', () => {
   audio.play('click');
   if (returnTo === 'start') { returnTo = 'title'; startRun(); }
@@ -1292,6 +1300,7 @@ platform.onBack(() => {
   else if (screen === 'paused') resume();
   else if (id === 'level') { audio.play('click'); show('map'); }
   else if (id === 'full') closePaywall();
+  else if (id === 'privacy') $('#privacy-back').click();
   else if (id === 'map') { audio.play('click'); goTitle(); }
   else if (id === 'result' || (id === 'over' && runKind === 'adventure')) openMap();
   else if (id === 'over') goTitle();
@@ -1362,7 +1371,7 @@ goTitle();
 if (platform.hasStore) {
   platform.store.init({ productId: PRODUCT_ID, price: FALLBACK_PRICE });
   renderPrice();
-  if (!fullGame()) platform.ads.init({ release: RELEASE, units: AD_UNITS, childDirected: CHILD_DIRECTED }).then(updateAds);
+  if (!fullGame()) platform.ads.init({ release: RELEASE, units: AD_UNITS, childDirected: CHILD_DIRECTED, testDevices: TEST_DEVICES }).then(updateAds);
 }
 // A sync link (…#sync=CODE) offers to link this device, also when it's opened
 // in a tab that already has the game.
@@ -1376,5 +1385,28 @@ function handleSyncLink() {
 handleSyncLink();
 window.addEventListener('hashchange', handleSyncLink);
 if (save.sync?.code) syncNow(true);
+
+// The test tools, on the web test copy only (tools/build-www.mjs leaves
+// js/admin.js out of the app).
+if (!platform.isNative) {
+  const whenPlaying = fn => {
+    if (screen === 'paused') resume();
+    const t = setInterval(() => { if (game.state === 'play') { clearInterval(t); fn(); } }, 50);
+    setTimeout(() => clearInterval(t), 8000);
+  };
+  import('./admin.js').then(m => m.init({
+    getScreen: () => screen,
+    stopSaving: () => { savesOff = true; clearTimeout(saveTimer); },
+    openLevel: n => { openMap(); openLevelCard(n); },
+    win: () => whenPlaying(() => game.levelComplete('LEVEL CLEAR!')),
+    lose: () => whenPlaying(() => {
+      const s = game.snakes.find(o => !o.dead);
+      if (!s) return;
+      game.bites = 1;
+      Object.assign(game.apple, { invuln: 0, rot: 0 });
+      game.biteApple(s);
+    }),
+  })).catch(e => console.error(e));
+}
 requestAnimationFrame(frame);
 requestAnimationFrame(() => requestAnimationFrame(platform.appReady));
